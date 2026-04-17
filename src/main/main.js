@@ -336,6 +336,13 @@ function registerWizardHandlers() {
           aiGenreService.setReplicateToken(payload.replicateToken);
         } catch { /* noop */ }
       }
+      if (payload.acoustidKey) {
+        store.set('acoustidKey', payload.acoustidKey);
+        try {
+          const mbService = require('../services/musicbrainzService');
+          if (mbService.setAcoustidKey) mbService.setAcoustidKey(payload.acoustidKey);
+        } catch { /* noop */ }
+      }
       store.set('notificationsEnabled', !!payload.notificationsEnabled);
       if (process.platform === 'win32') {
         app.setLoginItemSettings({

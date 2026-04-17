@@ -3,20 +3,38 @@
  *
  * Rilevamento lingua VOCALS a cascata:
  *   1. Match artisti noti (ARTISTS_ES / ARTISTS_IT / ARTISTS_EN)
+ *      — con word-boundary regex (no substring match naïve)
  *   2. franc-min su testo riconosciuto (artista + titolo ACR/Shazam)
- *   3. franc-min sul nome file pulito (dopo strip scraper suffix)
+ *   3. franc-min sul nome file pulito
  *   4. Default 'mixed'
  *
  * Output: 'es' | 'it' | 'it_es' | 'en' | 'mixed'
  *
- * Il match artisti è più affidabile di franc (che su stringhe corte
- * di 2-3 parole spesso sbaglia). franc resta fallback utile per tracce
- * senza artista noto.
+ * WORD-BOUNDARY: il match accetta separatori DJ-typical (spazio, trattino,
+ * underscore, punto, virgola, x/×/&/+//) prima e dopo l'artista. Così
+ * "bad bunny" matcha "bad_bunny_spotdown" e "j balvin x bad bunny" ma NON
+ * matcha "badger bunny" o "embed bunny".
+ *
+ * DIACRITICS: testo e artisti sono normalizzati rimuovendo accenti per
+ * evitare miss con "Sebastián" vs "sebastian".
  */
 
 'use strict';
 
+// ---------------------------------------------------------------------------
+// Normalizzazione
+// ---------------------------------------------------------------------------
+
+function stripDiacritics(s = '') {
+  return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalize(s = '') {
+  return stripDiacritics(String(s)).toLowerCase();
+}
+
 // ── ARTISTI SPAGNOLI / LATINI ────────────────────────────────────
+// Tutti già lowercased e senza diacritici (normalizzati al match).
 const ARTISTS_ES = new Set([
   // Reggaeton / Latin Urban classico
   'bad bunny', 'j balvin', 'rauw alejandro', 'daddy yankee',
@@ -25,7 +43,7 @@ const ARTISTS_ES = new Set([
   'j quiles', 'lerica', 'becky g', 'chencho corleone',
   // Dembow dominicano
   'el alfa', 'rochy rd', 'bulin 47', 'chimbala', 'mozart la para',
-  'secreto el famoso biberon', 'dj yakarta', 'dj scuff',
+  'secreto', 'secreto el famoso biberon', 'dj yakarta', 'dj scuff',
   'el mayor clasico', 'shelow shaq', 'quimico ultra mega',
   // Trap / drill latino
   'trueno', 'duki', 'bizarrap', 'paulo londra', 'khea', 'lit killah',
@@ -43,18 +61,33 @@ const ARTISTS_ES = new Set([
   'jhoni el que sabe', 'lunay', 'brray', 'noriel',
   // Rvssian (produttore jamaicano con roster ES)
   'rvssian', 'notch', 'tanto metro',
+
+  // ── Nuova scena urbana latina 2023-2025 (corridos tumbados, regional mex)
+  'peso pluma', 'eslabon armado', 'natanael cano',
+  'junior h', 'gabito ballesteros', 'yahritza',
+  'marca mp', 'xavi', 'ivan cornejo',
+  // Urban PR/Colombia nuova ondata
+  'young miko', 'jhyve', 'blessd', 'ryan castro',
+  'dalex', 'amenazzy',
+  // Dembow/Urbano classico extra
+  'wisin', 'yandel', 'plan b',
+  // DR drill/dembow
+  'luar la l',
+  // Afrobeats/funk brasiliano latino (vocals ES/PT)
+  'anitta', 'dennis dj', 'bonde r300',
+  // Colombiani/ecuadoriani pop
+  'mario bautista',
 ]);
 
 // ── ARTISTI ITALIANI ─────────────────────────────────────────────
 const ARTISTS_IT = new Set([
-  // Trap / hip hop italiano
+  // Trap / hip hop italiano (classici)
   'sfera ebbasta', 'tony effe', 'fedez', 'marracash', 'salmo',
   'capo plaza', 'rkomi', 'mahmood', 'blanco', 'irama',
-  'lazza', 'luche', 'lucè', 'luchè', 'geolier', 'liberato', 'nino brown',
-  'shiva', 'anna', 'villabanks', 'ernia', 'gue pequeno', 'gué',
+  'lazza', 'luche', 'geolier', 'liberato', 'nino brown',
+  'shiva', 'anna', 'villabanks', 'ernia', 'gue pequeno', 'gue',
   'jake la furia', 'dark polo gang', 'pyrex',
   'neo solaris', 'uwaie', 'guido dj', 'chimu dj',
-  // Nuova scena
   'samuele brignoccolo', 'ossessione', 'federico bolletta',
   'mattia olivi', 'random', 'drillionaire', 'sacky',
   'nardi', 'vale pain', 'artie 5ive', 'ackeejuice rockers',
@@ -63,18 +96,76 @@ const ARTISTS_IT = new Set([
   'baby k', 'elodie', 'giorgia', 'levante',
   // Afrohouse/electronic italiano
   'ghali', 'frah quintale', 'mace', 'tha supreme',
+
+  // ── Nuova scena italiana 2023-2025
+  'rondodasosa', 'simba la rue', 'baby gang', 'neima ezza',
+  'young signorino', 'tedua', 'izi',
+  'gazzelle', 'calcutta', 'coez',
+  'el nino', 'neffa', 'ensi',
+  'murubutu', 'claver gold',
+  'me contro te',
+  'massimo pericolo', 'mostro',
+  'kento', 'nto',
 ]);
 
 // ── ARTISTI INGLESI / INTERNAZIONALI ─────────────────────────────
 const ARTISTS_EN = new Set([
-  'beyonce', 'rihanna', 'drake', 'the weeknd', 'doja cat',
-  'cardi b', 'nicki minaj', 'missy elliott', '21 savage',
-  'lil baby', 'gunna', 'polo g', 'roddy ricch', 'pop smoke',
+  // Hip Hop / Trap US
+  'drake', 'the weeknd', 'post malone', 'travis scott',
+  'kendrick lamar', 'j cole', '21 savage', 'lil baby',
+  'gunna', 'polo g', 'roddy ricch', 'pop smoke',
+  'dababy', 'lil uzi vert', 'young thug',
+  'nba youngboy', 'juice wrld', 'xxxtentacion',
+  'cardi b', 'nicki minaj', 'megan thee stallion',
+  'doja cat', 'lizzo', 'sza', 'dua lipa',
+  // R&B / Soul
+  'beyonce', 'rihanna', 'frank ocean',
+  'h.e.r.', 'khalid', 'summer walker', 'bryson tiller',
+  // Pop internazionale
+  'ed sheeran', 'charlie puth', 'sam smith', 'adele',
+  'billie eilish', 'ariana grande', 'taylor swift',
+  'justin bieber', 'harry styles', 'olivia rodrigo',
+  // Afrobeats (EN / internazionale)
   'burna boy', 'wizkid', 'davido',
+  'ckay', 'fireboy dml', 'rema', 'tems', 'ayra starr',
+  'kizz daniel', 'omah lay', 'victony', 'joeboy',
+  // UK rap/drill
+  'stormzy', 'dave', 'skepta', 'aitch', 'central cee',
+  'little simz', 'slowthai', 'digga d', 'headie one',
+  // Dance/Electronic internazionale
+  'david guetta', 'calvin harris', 'tiesto', 'martin garrix',
+  'marshmello', 'the chainsmokers', 'diplo', 'major lazer',
+  // Legacy
+  'missy elliott',
 ]);
 
 // ---------------------------------------------------------------------------
-// Text normalization helpers
+// Word-boundary match
+// ---------------------------------------------------------------------------
+
+// Separatori validi DJ/filename: inizio/fine stringa, whitespace, - _ . , / +
+// e × x & (collaborazioni). Tutto il resto → nessun match (evita
+// "bad bunny" ⊂ "badger bunny" e "embed bunny").
+const BOUNDARY = '(?:^|[\\s\\-_.,/+&×x])';
+const BOUNDARY_END = '(?:$|[\\s\\-_.,/+&×x])';
+// Gli spazi INTERNI all'artista ("bad bunny") vanno trattati in modo permissivo
+// perché nei filename DJ si trovano anche come _, -, . (es. "bad_bunny_spotdown",
+// "j.cole", "feid.dj.scuff"). Almeno 1 separatore obbligatorio.
+const INTERNAL_SEP = '[\\s\\-_./+&]+';
+
+function artistMatchesText(artist, text) {
+  if (!artist || !text) return false;
+  const parts = String(artist)
+    .trim()
+    .split(/\s+/)
+    .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const core = parts.join(INTERNAL_SEP);
+  const pattern = new RegExp(BOUNDARY + core + BOUNDARY_END, 'i');
+  return pattern.test(text);
+}
+
+// ---------------------------------------------------------------------------
+// Estrazione testo dal track
 // ---------------------------------------------------------------------------
 
 function extractArtistsFromTrack(track = {}) {
@@ -85,35 +176,32 @@ function extractArtistsFromTrack(track = {}) {
       .replace(/\.(mp3|wav|flac|aac|m4a|aiff?|ogg)$/i, '')
       .replace(/_/g, ' ')
       .replace(/\b(KLICKAUD|SPOTDOWN|SOUNDCLOUD|FREE.?DL|PITCHED|COPYRIGHT|DOWNLOAD|MEDAL|HQ|spotdown\.org|128K|320K)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .toLowerCase();
+      .replace(/\s+/g, ' ');
     sources.push(clean);
   }
+  if (track.recognizedArtist) sources.push(String(track.recognizedArtist));
+  if (track.recognizedTitle)  sources.push(String(track.recognizedTitle));
+  if (track.bestArtist)       sources.push(String(track.bestArtist));
+  if (track.localArtist)      sources.push(String(track.localArtist));
 
-  if (track.recognizedArtist) sources.push(String(track.recognizedArtist).toLowerCase());
-  if (track.recognizedTitle)  sources.push(String(track.recognizedTitle).toLowerCase());
-  if (track.bestArtist)       sources.push(String(track.bestArtist).toLowerCase());
-  if (track.localArtist)      sources.push(String(track.localArtist).toLowerCase());
-
-  return sources.join(' ');
+  return normalize(sources.join(' '));
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — match artisti noti
+// Step 1 — match artisti noti (con word boundary)
 // ---------------------------------------------------------------------------
 
 function detectLanguageFromArtists(text = '') {
-  const t = String(text).toLowerCase();
+  const t = normalize(text);
   if (!t) return null;
 
   const foundES = [];
   const foundIT = [];
   const foundEN = [];
 
-  // substring match case-insensitive con word-boundary approssimata
-  for (const a of ARTISTS_ES) if (t.includes(a)) foundES.push(a);
-  for (const a of ARTISTS_IT) if (t.includes(a)) foundIT.push(a);
-  for (const a of ARTISTS_EN) if (t.includes(a)) foundEN.push(a);
+  for (const artist of ARTISTS_ES) if (artistMatchesText(artist, t)) foundES.push(artist);
+  for (const artist of ARTISTS_IT) if (artistMatchesText(artist, t)) foundIT.push(artist);
+  for (const artist of ARTISTS_EN) if (artistMatchesText(artist, t)) foundEN.push(artist);
 
   if (foundIT.length && foundES.length) return 'it_es';
   if (foundIT.length && !foundEN.length) return 'it';
@@ -148,7 +236,6 @@ async function detectLanguageFromText(text = '') {
   try {
     const franc = await getFranc();
     if (!franc) return null;
-    // franc accetta { only: [...] } per restringere le ipotesi
     const code = franc(t, { only: ['spa', 'ita', 'eng'] });
     const MAP = { spa: 'es', ita: 'it', eng: 'en', und: null };
     return MAP[code] || null;
@@ -161,11 +248,6 @@ async function detectLanguageFromText(text = '') {
 // Main: detectVocalLanguage(track) — cascata a 4 step
 // ---------------------------------------------------------------------------
 
-/**
- * @param {object} track
- * @returns {Promise<'es'|'it'|'it_es'|'en'|'mixed'>}
- * Side-effect: imposta track.languageSource con lo step che ha vinto.
- */
 async function detectVocalLanguage(track = {}) {
   // STEP 1 — artisti noti (il più affidabile)
   const fullText = extractArtistsFromTrack(track);
@@ -188,7 +270,7 @@ async function detectVocalLanguage(track = {}) {
     }
   }
 
-  // STEP 3 — franc sul nome file pulito (senza keyword genere/edit)
+  // STEP 3 — franc sul nome file pulito
   const cleanName = String(track.fileName || '')
     .replace(/\.(mp3|wav|flac|aac|m4a|aiff?|ogg)$/i, '')
     .replace(/[_\-\.]/g, ' ')
@@ -212,6 +294,7 @@ module.exports = {
   detectLanguageFromArtists,
   detectLanguageFromText,
   extractArtistsFromTrack,
+  artistMatchesText,
   ARTISTS_ES,
   ARTISTS_IT,
   ARTISTS_EN,

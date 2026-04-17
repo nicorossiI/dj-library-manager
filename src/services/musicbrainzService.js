@@ -25,6 +25,32 @@ const { CONFIG } = require('../constants/CONFIG');
 const { getFpcalcPath } = require('./fingerprintService');
 
 // ---------------------------------------------------------------------------
+// AcoustID API key — runtime-configurable dal settings UI.
+// Cascata: store → env → CONFIG.acoustid.key (default/demo).
+// ---------------------------------------------------------------------------
+
+let _acoustidKey = null;
+
+function setAcoustidKey(key) {
+  _acoustidKey = (key && String(key).trim()) || null;
+  console.log('[AcoustID] Key configurata:', _acoustidKey ? '✓' : '✗');
+}
+
+function getAcoustidKey() {
+  return _acoustidKey || process.env.ACOUSTID_KEY || CONFIG.acoustid?.key || null;
+}
+
+function initFromStore(store) {
+  try {
+    const key = store?.get?.('acoustidKey', '') || '';
+    if (key) setAcoustidKey(key);
+    else if (process.env.ACOUSTID_KEY) setAcoustidKey(process.env.ACOUSTID_KEY);
+  } catch (e) {
+    console.warn('[AcoustID initFromStore]', e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Lazy singleton MusicBrainzApi (così non init se non serve)
 // ---------------------------------------------------------------------------
 
@@ -93,7 +119,7 @@ async function lookupByFingerprint(track) {
   if (!fs.existsSync(track.filePath)) return null;
 
   const timeoutMs = CONFIG.acoustid?.requestTimeoutMs || 10_000;
-  const apiKey = CONFIG.acoustid?.key;
+  const apiKey = getAcoustidKey();
   if (!apiKey) return null;
 
   try {
@@ -219,4 +245,7 @@ module.exports = {
   lookupByFingerprint,
   getGenreFromMusicBrainz,
   getReleaseMbid,
+  setAcoustidKey,
+  getAcoustidKey,
+  initFromStore,
 };

@@ -73,12 +73,14 @@ function finish() {
     accessSecret: $('#wiz-acr-secret').value.trim(),
   };
   const replicateToken = ($('#wiz-replicate-token')?.value || '').trim();
+  const acoustidKey = ($('#wiz-acoustid-key')?.value || '').trim();
   const payload = {
     watchFolder: state.watchFolder || '',
     startWithWindows: $('#wiz-start-with-windows').checked,
     notificationsEnabled: $('#wiz-notifications').checked,
     acrcloud: (acr.host && acr.accessKey && acr.accessSecret) ? acr : null,
     replicateToken: replicateToken || null,
+    acoustidKey: acoustidKey || null,
   };
   window.wizardApi.complete(payload);
 }
@@ -109,6 +111,11 @@ function init() {
   $('#wiz-open-replicate')?.addEventListener('click', (e) => {
     e.preventDefault();
     window.wizardApi.openExternal('https://replicate.com/account/api-tokens');
+  });
+
+  $('#wiz-open-acoustid')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.wizardApi.openExternal('https://acoustid.org/login');
   });
 
   $('#wiz-close').addEventListener('click', () => {

@@ -628,6 +628,24 @@
         </fieldset>
 
         <fieldset>
+          <legend>AcoustID — Fallback gratuito illimitato</legend>
+          <label>Chiave API AcoustID
+            <input type="text" id="set-acoustid-key" placeholder="Incolla qui la tua chiave AcoustID" />
+          </label>
+          <div class="shazam-status-row">
+            <span id="set-acoustid-state" class="watch-state-label inactive">🔴 Non configurata — MusicBrainz fallback disabilitato</span>
+            <button id="btn-test-acoustid" class="btn btn-sm">
+              <i class="fa-solid fa-plug"></i> Verifica
+            </button>
+            <a id="lnk-acoustid" href="#" class="wiz-link" style="font-size:12px">Ottieni chiave gratuita →</a>
+          </div>
+          <p class="muted" style="font-size:12px; margin-top:8px">
+            AcoustID è gratuita e senza limiti. Migliora il riconoscimento di canzoni non trovate da ACRCloud
+            usando il database MusicBrainz.
+          </p>
+        </fieldset>
+
+        <fieldset>
           <legend>Dove salvare la libreria organizzata</legend>
           <label>Cartella di destinazione
             <div class="set-watcher-row">

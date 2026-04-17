@@ -5,12 +5,17 @@
  *  - DuplicateGroup: metadata del gruppo (tipo, matchType, similarityScore)
  *  - DuplicateItem:  singolo elemento del gruppo (può essere file o segmento mix)
  *
- * Logica keeper (DuplicateItem.recommended):
+ * Priorità keeper (DuplicateItem.recommended), in ordine decrescente:
  *   1. file singolo > segmento mix
- *   2. a parità:   fileSize maggiore
- *   3. a parità:   più metadati popolati (title+artist+album+bpm+key)
+ *   2. Formato (FLAC/WAV/AIFF > AAC/M4A/OGG > MP3 > WMA)
+ *   3. Bitrate in bande (320 > 256 > 192 > 128) — evita flip a parità reale
+ *   4. Fingerprint confidence (match acustico più affidabile)
+ *   5. Completeness metadati (title+artist+album+bpm+key)
+ *   6. FileSize maggiore (tiebreaker residuo)
+ *   7. Path lex (stabilità)
  *
- * Esporta: DuplicateGroup, DuplicateItem
+ * Esporta: DuplicateGroup, DuplicateItem, FORMAT_QUALITY_RANK,
+ *          formatRank, bitrateScore, getRecommendedReason
  * Dipendenze: crypto
  */
 
@@ -30,13 +35,26 @@ function uuid() {
 // Ranking dei formati audio: lossless > lossy a parità di bitrate.
 // Valori più alti = più preferiti.
 const FORMAT_QUALITY_RANK = {
-  flac: 100, wav: 95, aiff: 95, aif: 95,       // lossless
-  aac: 60, m4a: 60, ogg: 55,                    // lossy moderno
-  mp3: 50,                                       // lossy classico
+  flac: 100,                        // lossless compresso
+  wav: 90, aiff: 85, aif: 85,       // lossless PCM
+  aac: 45, m4a: 45, ogg: 40,        // lossy moderno
+  mp3: 50,                           // lossy classico (preferito su aac/ogg per compat DJ)
+  wma: 30,
 };
 
 function formatRank(fmt) {
   return FORMAT_QUALITY_RANK[String(fmt || '').toLowerCase()] ?? 0;
+}
+
+// Banda il bitrate in classi: 320/256/192/128/<128 → differenze di +-2 kbps
+// (es. VBR 318 vs 320) non devono ribaltare la scelta keeper.
+function bitrateScore(br) {
+  const n = Number(br) || 0;
+  if (n >= 300) return 100;  // MP3 320 / lossless
+  if (n >= 250) return 80;   // MP3 256
+  if (n >= 190) return 60;   // MP3 192
+  if (n >= 120) return 40;   // MP3 128
+  return 20;
 }
 
 class DuplicateItem {
@@ -48,6 +66,7 @@ class DuplicateItem {
     this.duration = data.duration || 0;
     this.bitrate = data.bitrate || 0;        // kbps (per ranking qualità)
     this.format = data.format || '';         // "mp3"/"flac"/"wav"/... (per ranking)
+    this.fingerprintConfidence = Number(data.fingerprintConfidence) || 0; // 0..1 o 0..100
 
     this.isMixSegment = !!data.isMixSegment;
     this.parentMixPath = data.parentMixPath || null;
@@ -55,6 +74,7 @@ class DuplicateItem {
     this.segmentIndex = data.segmentIndex ?? null;
 
     this.recommended = !!data.recommended;
+    this.recommendedReason = data.recommendedReason || '';
 
     // campi extra usati dal calcolo completeness
     this._meta = data._meta || {}; // { title, artist, album, bpm, key }
@@ -68,8 +88,29 @@ class DuplicateItem {
   }
 
   toJSON() {
-    return { ...this, metadataCompleteness: this.metadataCompleteness };
+    return {
+      ...this,
+      metadataCompleteness: this.metadataCompleteness,
+      recommendedReason: this.recommendedReason,
+    };
   }
+}
+
+/**
+ * Spiega all'utente PERCHÉ questo item è il keeper consigliato.
+ * Ritorna stringhe corte tipo "FLAC, qualità migliore" o "MP3 320kbps".
+ */
+function getRecommendedReason(item) {
+  if (!item) return '';
+  const ext = String(item.format || (item.filePath || '').split('.').pop() || '').toLowerCase();
+  if (['flac', 'wav', 'aiff', 'aif'].includes(ext)) {
+    return `${ext.toUpperCase()}, qualità migliore`;
+  }
+  const br = Number(item.bitrate) || 0;
+  if (br >= 300) return `${ext ? ext.toUpperCase() + ' ' : ''}${Math.round(br)}kbps`;
+  if (br >= 250) return `${Math.round(br)}kbps, qualità più alta`;
+  if ((item.fingerprintConfidence || 0) > 0) return 'match acustico più affidabile';
+  return 'qualità migliore disponibile';
 }
 
 class DuplicateGroup {
@@ -99,34 +140,40 @@ class DuplicateGroup {
   /**
    * Ricalcola quale item tenere. Priorità decrescente:
    *   1. file singolo > segmento mix
-   *   2. formato lossless (FLAC/WAV/AIFF) > lossy (MP3/AAC/OGG)
-   *   3. bitrate più alto (320 > 192 > 128)
-   *   4. fileSize maggiore
-   *   5. completeness metadati (title+artist+album+bpm+key)
-   *   6. path lexicographic (tie-break stabile)
+   *   2. formato (FLAC > WAV > AIFF > MP3 > AAC/M4A > OGG > WMA)
+   *   3. bitrate in bande (320 > 256 > 192 > 128)
+   *   4. fingerprint confidence (0..1 o 0..100)
+   *   5. completeness metadati
+   *   6. fileSize come tiebreaker residuo
+   *   7. path lexicographic (tie-break stabile)
    */
   refreshRecommended() {
     if (!this.items || this.items.length === 0) return;
-    this.items.forEach(it => { it.recommended = false; });
+    this.items.forEach(it => { it.recommended = false; it.recommendedReason = ''; });
     const sorted = [...this.items].sort((a, b) => {
       // 1) non-segment first
       if (a.isMixSegment !== b.isMixSegment) return a.isMixSegment ? 1 : -1;
-      // 2) formato (lossless > lossy)
+      // 2) formato
       const fa = formatRank(a.format), fb = formatRank(b.format);
       if (fb !== fa) return fb - fa;
-      // 3) bitrate desc (0 = unknown, resta in fondo)
-      const ba = Number(a.bitrate) || 0, bb = Number(b.bitrate) || 0;
+      // 3) bitrate banded
+      const ba = bitrateScore(a.bitrate), bb = bitrateScore(b.bitrate);
       if (bb !== ba) return bb - ba;
-      // 4) fileSize desc
-      if ((b.fileSize || 0) !== (a.fileSize || 0)) return (b.fileSize || 0) - (a.fileSize || 0);
+      // 4) fingerprint confidence
+      const fpa = Number(a.fingerprintConfidence) || 0;
+      const fpb = Number(b.fingerprintConfidence) || 0;
+      if (fpb !== fpa) return fpb - fpa;
       // 5) completeness desc
       const ca = a.metadataCompleteness;
       const cb = b.metadataCompleteness;
       if (cb !== ca) return cb - ca;
-      // 6) tie-break stabile
+      // 6) fileSize desc (ultimo tiebreaker significativo)
+      if ((b.fileSize || 0) !== (a.fileSize || 0)) return (b.fileSize || 0) - (a.fileSize || 0);
+      // 7) tie-break stabile
       return (a.filePath || '').localeCompare(b.filePath || '');
     });
     sorted[0].recommended = true;
+    sorted[0].recommendedReason = getRecommendedReason(sorted[0]);
   }
 
   get recommendedItem() {
@@ -148,5 +195,12 @@ class DuplicateGroup {
   }
 }
 
-module.exports = { DuplicateGroup, DuplicateItem, FORMAT_QUALITY_RANK, formatRank };
+module.exports = {
+  DuplicateGroup,
+  DuplicateItem,
+  FORMAT_QUALITY_RANK,
+  formatRank,
+  bitrateScore,
+  getRecommendedReason,
+};
 module.exports.default = DuplicateGroup;

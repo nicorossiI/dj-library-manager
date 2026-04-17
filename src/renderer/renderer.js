@@ -624,7 +624,10 @@ function renderDupCard(it) {
   const isMixSeg = !!it.isMixSegment;
   const cardClass = it.recommended ? 'dupe-card recommended' : 'dupe-card';
   const head = isMixSeg ? '🎛️ NEL MIX' : '🎵 FILE SINGOLO';
-  const recBadge = it.recommended ? '<span class="badge-recommended">★ CONSIGLIATO</span>' : '';
+  const reason = it.recommended && it.recommendedReason ? it.recommendedReason : '';
+  const recBadge = it.recommended
+    ? `<span class="badge-recommended" data-tooltip="${escapeHtml(reason || 'qualità migliore')}">★ CONSIGLIATO${reason ? ' — ' + escapeHtml(reason) : ''}</span>`
+    : '';
 
   // Badge qualità: formato + bitrate con codice colore
   //  ≥300  → verde  (320 kbps / lossless)
@@ -1119,6 +1122,12 @@ async function loadSettings() {
   if (setRepl) setRepl.value = replToken;
   updateReplicateStateLabel(!!replToken);
 
+  // AcoustID key
+  const acoustidKey = r.data?.acoustidKey || '';
+  const setAid = $('#set-acoustid-key');
+  if (setAid) setAid.value = acoustidKey;
+  updateAcoustidStateLabel(!!acoustidKey);
+
   // Concorrenza analisi
   const c = Number(r.data?.analysisConcurrency || 3);
   const cSlider = $('#set-concurrency');
@@ -1145,6 +1154,42 @@ async function testReplicateConnection() {
   const r = await window.api.testReplicate?.(token);
   if (r?.ok && r.data?.ok) updateReplicateStateLabel(true, true);
   else updateReplicateStateLabel(!!token, false);
+}
+
+function updateAcoustidStateLabel(configured, valid = null) {
+  const el = $('#set-acoustid-state');
+  if (!el) return;
+  if (valid === true) {
+    el.textContent = '🟢 Attiva — riconoscimento illimitato disponibile';
+    el.classList.add('active'); el.classList.remove('inactive');
+    return;
+  }
+  if (valid === false) {
+    el.textContent = '🔴 Chiave non valida';
+    el.classList.remove('active'); el.classList.add('inactive');
+    return;
+  }
+  el.textContent = configured
+    ? '🟡 Da verificare'
+    : '🔴 Non configurata — MusicBrainz fallback disabilitato';
+  el.classList.toggle('active', false);
+  el.classList.toggle('inactive', true);
+}
+
+async function testAcoustidConnection() {
+  const input = $('#set-acoustid-key');
+  const key = input?.value?.trim() || '';
+  const el = $('#set-acoustid-state');
+  if (el) el.textContent = '⏳ Verifica...';
+  const r = await window.api.testAcoustid?.(key);
+  // r viene dal handler direttamente: { ok, message }
+  if (r?.ok) {
+    if (el && r.message) el.textContent = r.message;
+    updateAcoustidStateLabel(true, true);
+  } else {
+    if (el && r?.message) el.textContent = r.message;
+    updateAcoustidStateLabel(!!key, false);
+  }
 }
 
 async function pickOrganizeOutputRoot() {
@@ -1186,6 +1231,7 @@ async function saveSettings() {
     notificationsEnabled: $('#set-notifications-enabled').checked,
     startWithWindows: $('#set-start-with-windows').checked,
     replicateToken: $('#set-replicate-token')?.value?.trim() || '',
+    acoustidKey: $('#set-acoustid-key')?.value?.trim() || '',
     analysisConcurrency: Number($('#set-concurrency')?.value) || 3,
   };
   const r = await window.api.setSettings(payload);
@@ -1443,6 +1489,16 @@ async function init() {
     // shell.openExternal via preload se esiste; altrimenti window.open
     if (window.api.openExternal) window.api.openExternal('https://replicate.com/account/api-tokens');
     else window.open('https://replicate.com/account/api-tokens', '_blank');
+  });
+  $('#btn-test-acoustid')?.addEventListener('click', testAcoustidConnection);
+  $('#lnk-acoustid')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window.api.openExternal) window.api.openExternal('https://acoustid.org/login');
+    else window.open('https://acoustid.org/login', '_blank');
+  });
+  $('#set-acoustid-key')?.addEventListener('input', () => {
+    const k = $('#set-acoustid-key').value?.trim();
+    updateAcoustidStateLabel(!!k);
   });
 
   // IPC events

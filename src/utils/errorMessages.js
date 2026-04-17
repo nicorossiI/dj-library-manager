@@ -83,6 +83,10 @@ const ERROR_MESSAGES = Object.freeze({
     '⚠️ Il file rekordbox.xml è danneggiato. ' +
     'Rigeneralo dal tab Rekordbox per ripararlo.',
 
+  // Doppioni (info, non errori)
+  DUPLICATE_KEEP_RECOMMENDED:
+    '★ Tieni questo file — ha la qualità audio migliore.',
+
   // Generico
   NETWORK:
     '📶 Nessuna connessione internet. Ripoverò quando sarai online.',

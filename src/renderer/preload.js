@@ -76,6 +76,7 @@ const api = {
   testApiFull:  () => invoke('config:test-api'),    // spec: ritorna {success,responseTime,error}
   testShazam:   () => invoke('shazam:test'),        // { ok, message }
   testReplicate: (token) => invoke('replicate:test', token || null),
+  testAcoustid: (key) => invoke('acoustid:test', key || ''),
 
   // ── Drop zone helper (Electron v32+: File.path rimosso, serve webUtils)
   getPathForFile: (file) => {

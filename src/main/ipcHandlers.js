@@ -162,6 +162,12 @@ function registerIpcHandlers({ store, getMainWindow }) {
       if ('analysisConcurrency' in p) {
         try { analysisQueue.setConcurrency(p.analysisConcurrency); } catch { /* noop */ }
       }
+      if ('acoustidKey' in p) {
+        try {
+          const mbService = require('../services/musicbrainzService');
+          if (mbService.setAcoustidKey) mbService.setAcoustidKey(p.acoustidKey || '');
+        } catch { /* noop */ }
+      }
       const acr = store.get('acrcloud') || {};
       acrcloudService.setCredentials(acr);
       return ok(store.store);
@@ -197,6 +203,10 @@ function registerIpcHandlers({ store, getMainWindow }) {
     const c = store.get('analysisConcurrency', 3);
     analysisQueue.setConcurrency(c);
   } catch (err) { console.warn('[boot] analysisConcurrency:', err.message); }
+  try {
+    const mbService = require('../services/musicbrainzService');
+    if (mbService.initFromStore) mbService.initFromStore(store);
+  } catch (err) { console.warn('[boot] musicbrainz init:', err.message); }
 
   // ─────────────────────────────────────────────────────────────────
   // Folder / files picker
@@ -1074,6 +1084,42 @@ function registerIpcHandlers({ store, getMainWindow }) {
   });
   ipcMain.handle('shell:copyText', async (_e, text) => {
     try { clipboard.writeText(String(text || '')); return ok(true); } catch (e) { return fail(e); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // AcoustID — test chiave
+  // ─────────────────────────────────────────────────────────────────
+  ipcMain.handle('acoustid:test', async (_e, key) => {
+    const k = String(key || '').trim();
+    if (!k || k.length < 5) {
+      return { ok: false, message: 'Chiave troppo corta' };
+    }
+    try {
+      const axios = require('axios');
+      // Test con fingerprint fake: AcoustID risponde 200 con status=error
+      // (code 6 = invalid fingerprint, code 4 = invalid client key).
+      const resp = await axios.get('https://api.acoustid.org/v2/lookup', {
+        params: { client: k, duration: 30, fingerprint: 'AAAA', format: 'json' },
+        timeout: 8000,
+        validateStatus: () => true,
+      });
+      const data = resp.data || {};
+      const errCode = data.status === 'error' ? data.error?.code : 0;
+      if (errCode === 4) {
+        return { ok: false, message: '🔴 Chiave non valida (client key rifiutata)' };
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        return { ok: false, message: '🔴 Chiave non valida' };
+      }
+      // Qualsiasi altra risposta (ok, code 6 invalid fingerprint, code 3 no results)
+      // conferma che la key è accettata dal server.
+      return { ok: true, message: '🟢 Chiave valida — AcoustID attivo' };
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        return { ok: false, message: '🔴 Chiave non valida' };
+      }
+      return { ok: false, message: `🔴 Errore connessione: ${err.message}` };
+    }
   });
 
   // ─────────────────────────────────────────────────────────────────
