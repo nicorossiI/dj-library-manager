@@ -60,28 +60,28 @@ const FOLDER_NAMES = Object.freeze({
   HOUSE_LATINO:      'House Latino',       // alias
   HOUSE_MIXED:       'House Misto',
   HOUSE_ES:          'House Latino',       // alias
-  HOUSE_IT:          _TO_CHECK,
+  HOUSE_IT:          'House Italiano',
   HOUSE_EN:          'House Misto',        // alias
-  HOUSE_ITES:        'House Latino',       // alias
+  HOUSE_ITES:        'House Italiano e Spagnolo',
   HOUSE:             'House Misto',        // alias fallback
-  HOUSE_LATINO_IT:   _TO_CHECK,
+  HOUSE_LATINO_IT:   'House Italiano',
   HOUSE_LATINO_EN:   _TO_CHECK,
-  HOUSE_LATINO_ITES: 'House Latino',
+  HOUSE_LATINO_ITES: 'House Italiano e Spagnolo',
   HOUSE_LATINO_MIXED: 'House Misto',
 
   // ── Reggaeton ──────────────────────────────────────────
   REGGAETON_ES:      'Reggaeton',
+  REGGAETON_IT:      'Reggaeton Italiano',
   REGGAETON_ITES:    'Reggaeton Italiano e Spagnolo',
   REGGAETON_MIXED:   'Reggaeton Misto',
-  REGGAETON_IT:      'Reggaeton Misto',    // alias
   REGGAETON_EN:      'Reggaeton Misto',    // alias
   REGGAETON:         'Reggaeton',
 
   // ── Dembow ─────────────────────────────────────────────
   DEMBOW_ES:         'Dembow',
+  DEMBOW_IT:         'Dembow Italiano',
   DEMBOW_ITES:       'Dembow Italiano e Spagnolo',
   DEMBOW_MIXED:      'Dembow Misto',
-  DEMBOW_IT:         'Dembow Misto',       // alias
   DEMBOW_EN:         'Dembow Misto',       // alias
   DEMBOW:            'Dembow',
 
@@ -139,6 +139,8 @@ const FLAT_FOLDERS = new Set([
   FOLDER_NAMES.MIX_SET,
   FOLDER_NAMES.MASHUP_VARI,
   FOLDER_NAMES.TO_CHECK,
+  FOLDER_NAMES.SALSA_TROPICAL,
+  FOLDER_NAMES.TECHNO,
 ]);
 
 // ────────────────────────────────────────────────────────────────────
@@ -259,9 +261,10 @@ function resolveTargetFolder(track = {}) {
 
       // ── House generico ─────────────────────────────────────
       case 'house':
-        // House + ES o IT+ES → consideriamo Latino; altrimenti House Misto
-        if (langKey === 'es' || langKey === 'it_es') parent = FOLDER_NAMES.HOUSE_LATINO_ES;
-        else                                          parent = FOLDER_NAMES.HOUSE_MIXED;
+        if      (langKey === 'es')    parent = FOLDER_NAMES.HOUSE_LATINO_ES;
+        else if (langKey === 'it')    parent = FOLDER_NAMES.HOUSE_IT;
+        else if (langKey === 'it_es') parent = FOLDER_NAMES.HOUSE_ITES;
+        else                          parent = FOLDER_NAMES.HOUSE_MIXED;
         break;
 
       // ── Reggaeton ──────────────────────────────────────────

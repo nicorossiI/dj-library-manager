@@ -40,12 +40,19 @@ const OrganizeResult = require('../models/OrganizeResult');
 // ---------------------------------------------------------------------------
 
 /**
- * Ritorna il path assoluto della cartella output:
- *   <sourceFolder>/DJ Library Organizzata
- * Se esiste già: appende la data ISO (YYYY-MM-DD). Se anche la versione dated
- * esiste, incrementa un contatore. Evita sovrascritture accidentali.
+ * Ritorna il path assoluto della cartella output.
+ * - Se `customRoot` è passato E esiste → usa quello direttamente (l'utente
+ *   sceglie la sua cartella di destinazione, pronta a essere popolata).
+ * - Altrimenti: `<sourceFolder>/DJ Library Organizzata` con suffisso data
+ *   se esiste già, per evitare sovrascritture.
  */
-async function calculateOutputRoot(sourceFolder) {
+async function calculateOutputRoot(sourceFolder, customRoot = null) {
+  if (customRoot && String(customRoot).trim()) {
+    const p = String(customRoot).trim();
+    if (fs.existsSync(p)) return p;
+    // se il path è stato scelto ma non esiste ancora, lo creiamo come-è
+    return p;
+  }
   if (!sourceFolder) throw new Error('calculateOutputRoot: sourceFolder mancante');
   const base = path.join(sourceFolder, CONFIG.OUTPUT_FOLDER_NAME);
   if (!fs.existsSync(base)) return base;
@@ -95,8 +102,8 @@ function addToTree(tree, rel, track) {
  *   - rekordboxUri    (file://localhost/...)
  *   - rekordboxPlaylistFolder + rekordboxPlaylistName (per successivo export XML)
  */
-async function previewOrganization(tracks, sourceFolder) {
-  const outputRoot = await calculateOutputRoot(sourceFolder);
+async function previewOrganization(tracks, sourceFolder, opts = {}) {
+  const outputRoot = await calculateOutputRoot(sourceFolder, opts.customRoot);
   const tree = {};
   const foldersSeen = new Set();
   const stats = {
@@ -144,10 +151,10 @@ async function previewOrganization(tracks, sourceFolder) {
  *
  * @param {(done,total,fileName,targetFolder)=>void} onProgress
  */
-async function executeOrganization(tracks, sourceFolder, onProgress) {
+async function executeOrganization(tracks, sourceFolder, onProgress, opts = {}) {
   const list = tracks || [];
   // Preview rifatto qui per garantire path coerenti (idempotente sui Track)
-  const { outputRoot } = await previewOrganization(list, sourceFolder);
+  const { outputRoot } = await previewOrganization(list, sourceFolder, opts);
 
   // 2) Crea dirs (dedup)
   const dirsToCreate = new Set([outputRoot]);

@@ -409,10 +409,18 @@
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>Output</h3></div>
+        <div class="card-header"><h3>Cartella di destinazione</h3></div>
         <div class="output-path">
-          <span class="muted">Verrà creata:</span>
+          <span class="muted">La libreria organizzata verrà creata qui:</span>
           <code id="output-root-path">—</code>
+        </div>
+        <div class="card-actions" style="margin-top:12px">
+          <button id="btn-pick-output-root" class="btn">
+            <i class="fa-solid fa-folder-open"></i> Scegli cartella...
+          </button>
+          <button id="btn-reset-output-root" class="btn btn-ghost">
+            <i class="fa-solid fa-rotate-left"></i> Default (dentro cartella sorgente)
+          </button>
         </div>
       </div>
 
@@ -540,37 +548,48 @@
 
       <div id="rkb-instructions" class="instructions" style="display:none">
         <div class="instructions-header">
-          <i class="fa-solid fa-circle-check" style="margin-right:6px"></i>
-          <strong>rekordbox.xml generato con successo!</strong>
+          <i class="fa-solid fa-circle-check" style="margin-right:6px; color:var(--accent-green)"></i>
+          <strong>rekordbox.xml pronto!</strong>
         </div>
         <div class="instructions-body">
-          <h4>Come importare in Rekordbox</h4>
-          <ol>
-            <li>Apri Rekordbox</li>
-            <li>File → Preferences → Advanced</li>
-            <li>Sezione "rekordbox xml" → "Imported Library" → seleziona:<br>
-              <code id="xml-path-display">—</code>
-            </li>
-            <li>Clicca OK e <strong>riavvia</strong> Rekordbox</li>
-            <li>Nel pannello sinistro: clicca "rekordbox xml"</li>
-            <li>Tasto destro su "Playlists" → "Import Playlist"</li>
-            <li>Seleziona TUTTE le tracce nel pannello → tasto destro → "Import To Collection"<br>
-              <em class="muted">(necessario per un bug noto di Rekordbox — non saltarlo)</em>
-            </li>
-          </ol>
-          <div class="banner banner-warn">
-            <i class="fa-solid fa-triangle-exclamation"></i>
-            <div>
-              <strong>Non spostare i file</strong> dopo l'importazione. Se sposti la USB su altro PC con lettera drive diversa, rigenera <code>rekordbox.xml</code>.
+          <div class="rkb-quick">
+            <div class="rkb-quick-main">
+              Apri <strong>Rekordbox</strong> e clicca 🔄 <strong>Reload</strong> sul pannello <code>rekordbox xml</code>.
+            </div>
+            <div class="rkb-quick-sub muted">
+              Prima volta? Vai in <strong>File → Preferences → Advanced</strong>, sezione <code>rekordbox xml</code> → seleziona <code id="xml-path-display">—</code>
             </div>
           </div>
+
           <div class="instructions-actions">
-            <button id="btn-open-output" class="btn">
-              <i class="fa-solid fa-folder-open"></i> Apri cartella output
+            <button id="btn-open-output" class="btn btn-primary">
+              <i class="fa-solid fa-folder-open"></i> Apri cartella
             </button>
             <button id="btn-copy-xml-path" class="btn">
-              <i class="fa-solid fa-copy"></i> Copia percorso
+              <i class="fa-solid fa-copy"></i> Copia percorso XML
             </button>
+            <button id="btn-toggle-rkb-details" class="btn btn-ghost">
+              <i class="fa-solid fa-circle-info"></i> Dettagli completi
+            </button>
+          </div>
+
+          <div id="rkb-full-details" class="rkb-full-details" style="display:none">
+            <h4>Procedura completa (prima volta)</h4>
+            <ol>
+              <li>Apri Rekordbox</li>
+              <li><strong>File → Preferences → Advanced</strong></li>
+              <li>Sezione <code>rekordbox xml</code> → <em>Imported Library</em> → seleziona il file sopra</li>
+              <li>Clicca OK e <strong>riavvia</strong> Rekordbox</li>
+              <li>Nel pannello sinistro: clicca <code>rekordbox xml</code></li>
+              <li>Tasto destro su <strong>Playlists</strong> → <em>Import Playlist</em></li>
+              <li>Seleziona tutte le tracce → tasto destro → <em>Import To Collection</em></li>
+            </ol>
+            <div class="banner banner-warn" style="margin-top:10px">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              <div>
+                <strong>Non spostare i file</strong> dopo l'importazione. Se cambi PC o lettera USB, rigenera <code>rekordbox.xml</code>.
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -609,6 +628,21 @@
         </fieldset>
 
         <fieldset>
+          <legend>Dove salvare la libreria organizzata</legend>
+          <label>Cartella di destinazione
+            <div class="set-watcher-row">
+              <code id="set-organize-root" class="set-watch-path">—</code>
+              <button id="btn-set-organize-root" class="btn">
+                <i class="fa-solid fa-folder-open"></i> Cambia
+              </button>
+            </div>
+          </label>
+          <p class="muted" style="font-size:12px; margin-top:6px">
+            Lascia vuoto per usare "DJ Library Organizzata" dentro la cartella sorgente.
+          </p>
+        </fieldset>
+
+        <fieldset>
           <legend>Shazam — Fallback gratuito</legend>
           <div class="shazam-status-row">
             <span id="set-shazam-state" class="watch-state-label inactive">🔴 Non verificato</span>
@@ -619,6 +653,25 @@
           <p class="muted" style="font-size:12px; margin-top:8px">
             Riconosce canzoni anche con base modificata (afrohouse edit, techhouse blend).
             Nessuna configurazione: si attiva automaticamente quando ACRCloud e AcoustID falliscono.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>AI Genre — Replicate API (opzionale)</legend>
+          <label>Token API
+            <input type="password" id="set-replicate-token" placeholder="r8_xxxxxxxxxxxxxxxxxxxxx" />
+          </label>
+          <div class="shazam-status-row">
+            <span id="set-replicate-state" class="watch-state-label inactive">🔴 Non configurato</span>
+            <button id="btn-test-replicate" class="btn btn-sm">
+              <i class="fa-solid fa-plug"></i> Verifica
+            </button>
+            <a id="lnk-replicate" href="#" class="wiz-link" style="font-size:12px">Ottieni token gratuito →</a>
+          </div>
+          <p class="muted" style="font-size:12px; margin-top:8px">
+            Identifica il genere della BASE audio (afrohouse, techhouse, reggaeton...) con un modello neurale.
+            Utile per edit/blend dove la canzone originale ha genere diverso dalla base. Opzionale: senza token,
+            l'app usa la cascata standard (keyword + artista + BPM).
           </p>
         </fieldset>
 
@@ -652,6 +705,26 @@
             <input type="checkbox" id="set-start-with-windows">
             <span><strong>Avvia con Windows</strong> — l'app parte nascosta nel vassoio al login</span>
           </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Velocità analisi (concorrenza)</legend>
+          <label>
+            <div style="display:flex; justify-content:space-between">
+              <span>Analisi in parallelo</span>
+              <strong id="set-concurrency-value" style="color:var(--accent-red)">3</strong>
+            </div>
+            <input type="range" id="set-concurrency" min="1" max="5" step="1" value="3" />
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:4px">
+              <span>1 = preciso (lento)</span>
+              <span>3 = bilanciato</span>
+              <span>5 = veloce</span>
+            </div>
+          </label>
+          <p class="muted" style="font-size:12px; margin-top:6px">
+            Numero massimo di file analizzati contemporaneamente. Valori alti velocizzano
+            l'analisi ma possono triggerare rate-limit su ACRCloud/Shazam.
+          </p>
         </fieldset>
 
         <fieldset>
@@ -783,7 +856,7 @@
         <ul class="final-result-list">
           <li><span class="fr-icon">🎵</span> <strong id="fr-renamed">0</strong> canzoni rinominate</li>
           <li><span class="fr-icon">📁</span> <strong id="fr-folders">0</strong> cartelle create</li>
-          <li><span class="fr-icon">⚠️</span> <strong id="fr-dupes">0</strong> doppioni trovati <button id="fr-goto-dupes" class="btn btn-ghost btn-sm">Vedi</button></li>
+          <li><span class="fr-icon">🗑️</span> <strong id="fr-dupes">0</strong> doppioni eliminati (nel Cestino)</li>
           <li><span class="fr-icon">🎛️</span> <strong id="fr-xml-status">Rekordbox aggiornato</strong></li>
         </ul>
       </div>
@@ -792,6 +865,24 @@
         <button class="btn btn-primary" data-close="final-result">Chiudi</button>
       </div>
     </div>
+  </div>
+
+  <!-- ============================================================
+       UPDATE BANNER (auto-updater)
+       ============================================================ -->
+  <div id="update-banner" class="update-banner" style="display:none">
+    <div class="update-banner-content">
+      <span id="update-message"></span>
+      <div id="update-progress-wrap" class="update-progress-wrap" style="display:none">
+        <div id="update-progress-bar" class="update-progress-bar"></div>
+      </div>
+    </div>
+    <button id="btn-install-now" class="btn btn-success btn-sm" style="display:none">
+      🔄 Riavvia e installa
+    </button>
+    <button id="btn-dismiss-update" class="btn btn-ghost btn-sm" aria-label="Chiudi">
+      ✕
+    </button>
   </div>
 
   <script src="renderer.js"></script>

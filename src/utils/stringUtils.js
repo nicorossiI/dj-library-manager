@@ -250,32 +250,45 @@ function parseFileNameForMetadata(fileName) {
 // pathToRekordboxUri
 // ---------------------------------------------------------------------------
 /**
- * "D:\USB\DJ Library Organizzata\Reggaeton\Singoli\Rauw - Todo de Ti.mp3"
- *   → "file://localhost/D:/USB/DJ%20Library%20Organizzata/Reggaeton/Singoli/Rauw%20-%20Todo%20de%20Ti.mp3"
+ * Modalità RELATIVA (se xmlOutputPath fornito): ritorna path relativo
+ * dall'XML al file audio, con separatori forward-slash e segmenti
+ * URI-encoded. Es.:
+ *   xmlOutputPath: "E:\USB\rekordbox.xml"
+ *   absolutePath : "E:\USB\Afro House Spagnolo\Singoli\Bad Bunny.mp3"
+ *   →             "Afro%20House%20Spagnolo/Singoli/Bad%20Bunny.mp3"
+ * Vantaggio: USB portabile — funziona indipendentemente dalla drive letter.
  *
- * - Sostituisce \ con /
- * - Prepende "file://localhost/"
- * - encodeURIComponent per ogni segmento, ECCETTO quello che contiene ':'
- *   (la lettera di drive Windows "D:")
- * - Preserva caratteri Rekordbox-friendly che encodeURIComponent codifica:
- *     ( → preservato (era %28)
- *     ) → preservato (era %29)
- *     ' → preservato (era %27)
- *     , → preservato (era %2C)
- *   Spazi → %20 (corretto per file:// URI).
+ * Modalità ASSOLUTA (fallback, nessun xmlOutputPath): preserva il
+ * comportamento originale con schema "file://localhost/<DRIVE>:/...".
+ *
+ * In entrambe le modalità preserva caratteri Rekordbox-friendly che
+ * encodeURIComponent codifica: ( ) ' ,  (spazi → %20).
  */
-function pathToRekordboxUri(absolutePath) {
+function pathToRekordboxUri(absolutePath, xmlOutputPath) {
   if (!absolutePath) return '';
+
+  const encodeSegment = (seg) => (
+    encodeURIComponent(seg)
+      .replace(/%28/g, '(')
+      .replace(/%29/g, ')')
+      .replace(/%27/g, "'")
+      .replace(/%2C/g, ',')
+  );
+
+  if (xmlOutputPath) {
+    const path = require('path');
+    const xmlDir = path.dirname(String(xmlOutputPath));
+    let rel = path.relative(xmlDir, String(absolutePath));
+    rel = rel.replace(/\\/g, '/');
+    return rel.split('/').map(encodeSegment).join('/');
+  }
+
   const forward = String(absolutePath).replace(/\\/g, '/');
   const segments = forward.split('/');
   const encoded = segments
     .map(seg => {
       if (seg.includes(':')) return seg; // drive letter "D:"
-      return encodeURIComponent(seg)
-        .replace(/%28/g, '(')
-        .replace(/%29/g, ')')
-        .replace(/%27/g, "'")
-        .replace(/%2C/g, ',');
+      return encodeSegment(seg);
     })
     .join('/');
   return 'file://localhost/' + encoded;

@@ -165,7 +165,7 @@ function todayIso() {
 // buildCollectionXml
 // ---------------------------------------------------------------------------
 
-function trackElement(t, rekordboxId) {
+function trackElement(t, rekordboxId, xmlOutputPath) {
   const kind = KIND_BY_FORMAT[String(t.format || '').toLowerCase()] || 'MP3 File';
   const totalTime = Math.round(t.duration || 0);
   const bpm = (typeof t.bpm === 'number' && t.bpm > 0) ? Number(t.bpm).toFixed(2) : '0.00';
@@ -173,7 +173,7 @@ function trackElement(t, rekordboxId) {
     ? Number(t.sampleRate).toFixed(1) : '44100.0';
   const bitrate = Math.round(Number(t.bitrate) || 0);
   const size = Math.round(Number(t.fileSize) || 0);
-  const location = pathToRekordboxUri(t.newFilePath || t.filePath || '');
+  const location = pathToRekordboxUri(t.newFilePath || t.filePath || '', xmlOutputPath);
   // Comments: "DJLM: Afro House | ES | 112 | 8A" — filtrabile su CDJ Pioneer.
   // Se disponibile, appende anche il nome file originale (backup).
   const djlmLine = buildDjlmComment(t);
@@ -216,9 +216,9 @@ function trackElement(t, rekordboxId) {
   );
 }
 
-function buildCollectionXml(tracks, trackIdMap) {
+function buildCollectionXml(tracks, trackIdMap, xmlOutputPath) {
   return (tracks || [])
-    .map(t => trackElement(t, trackIdMap.get(t.id)))
+    .map(t => trackElement(t, trackIdMap.get(t.id), xmlOutputPath))
     .join('\n');
 }
 
@@ -414,16 +414,18 @@ function validateXml(xmlString, tracks) {
   }
   if (dupIds.length) errors.push(`TrackID duplicati in COLLECTION: ${[...new Set(dupIds)].join(', ')}`);
 
-  // 4) Tutte le Location ben formate
+  // 4) Tutte le Location presenti. Accetta sia assolute ("file://localhost/...")
+  //    sia relative ("Folder/Sub/track.mp3") — le seconde rendono l'USB
+  //    portabile su qualsiasi lettera di drive.
   const locRe = /Location="([^"]*)"/g;
   let locMatch;
   let locCount = 0;
   while ((locMatch = locRe.exec(xmlString)) !== null) {
     locCount++;
     const loc = locMatch[1];
-    if (!loc.startsWith('file://localhost/')) {
-      errors.push(`Location non valida: "${loc.slice(0, 80)}"`);
-      if (errors.length > 10) break; // evita output gigante
+    if (!loc) {
+      errors.push('Location vuota');
+      if (errors.length > 10) break;
     }
   }
   if (locCount !== totalTracks) {
@@ -484,12 +486,17 @@ async function generateRekordboxXml(organizedTracks, outputRoot) {
     t.rekordboxTrackId = id;
   });
 
-  // 2-3) Sezioni XML
-  const collectionXml = buildCollectionXml(tracks, trackIdMap);
+  // 2) Path XML prima di costruire: serve per risolvere i path relativi
+  //    (USB portabile su qualsiasi drive letter).
+  const xmlPath = path.join(outputRoot, 'rekordbox.xml');
+
+  // 3) Sezioni XML
+  const collectionXml = buildCollectionXml(tracks, trackIdMap, xmlPath);
   const playlistsXml = buildPlaylistsXml(tracks, trackIdMap);
 
-  // 4) Assembla
-  const xml =
+  // 4) Assembla — BOM UTF-8 richiesto da Rekordbox per caratteri non-ASCII.
+  const BOM = '\uFEFF';
+  const xml = BOM +
 `<?xml version="1.0" encoding="UTF-8"?>
 <DJ_PLAYLISTS Version="1.0.0">
   <PRODUCT Name="DJ Library Manager" Version="1.0.0" Company="Nicho DJ Tools"/>
@@ -504,7 +511,6 @@ ${playlistsXml}
   validateXml(xml, tracks);
 
   // 6) Salva su disco
-  const xmlPath = path.join(outputRoot, 'rekordbox.xml');
   await fsp.writeFile(xmlPath, xml, 'utf8');
 
   // Aggiorna status

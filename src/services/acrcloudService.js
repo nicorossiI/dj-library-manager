@@ -255,7 +255,8 @@ async function recognizeSingleTrack(track) {
         track.status = 'recognized';
         return track;
       }
-    } catch {
+    } catch (e) {
+      console.warn('[recognize:acr]', fileName, e.message);
       // fallthrough: prova il fallback parser nome file
     }
   }
@@ -283,7 +284,9 @@ async function recognizeSingleTrack(track) {
       }
       return track;
     }
-  } catch { /* MusicBrainz fallito, cadi su Shazam */ }
+  } catch (e) {
+    console.warn('[recognize:mb]', track?.fileName, e.message);
+  }
 
   // Fallback 2: SHAZAM (gratis, illimitato)
   // Particolarmente efficace su afrohouse edit, techhouse blend e mashup
@@ -304,7 +307,9 @@ async function recognizeSingleTrack(track) {
       if (sr.genre && !track.shazamGenre) track.shazamGenre = sr.genre;
       return track;
     }
-  } catch { /* Shazam fallito, cadi su parser filename */ }
+  } catch (e) {
+    console.warn('[recognize:shazam]', track?.fileName, e.message);
+  }
 
   // Fallback 3: parser nome file (ultimo tentativo)
   const parsed = parseFileNameForMetadata(fileName);
@@ -517,7 +522,9 @@ async function identifyMixSegments(filePath, {
           confidence: match.confidence,
         }));
       }
-    } catch { /* skip */ }
+    } catch (e) {
+      console.warn('[acr mix segment]', e.message);
+    }
     idx++;
   }
   return segments;

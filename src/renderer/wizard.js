@@ -72,11 +72,13 @@ function finish() {
     accessKey: $('#wiz-acr-key').value.trim(),
     accessSecret: $('#wiz-acr-secret').value.trim(),
   };
+  const replicateToken = ($('#wiz-replicate-token')?.value || '').trim();
   const payload = {
     watchFolder: state.watchFolder || '',
     startWithWindows: $('#wiz-start-with-windows').checked,
     notificationsEnabled: $('#wiz-notifications').checked,
     acrcloud: (acr.host && acr.accessKey && acr.accessSecret) ? acr : null,
+    replicateToken: replicateToken || null,
   };
   window.wizardApi.complete(payload);
 }
@@ -102,6 +104,11 @@ function init() {
   $('#wiz-open-acr-console').addEventListener('click', (e) => {
     e.preventDefault();
     window.wizardApi.openExternal('https://console.acrcloud.com');
+  });
+
+  $('#wiz-open-replicate')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.wizardApi.openExternal('https://replicate.com/account/api-tokens');
   });
 
   $('#wiz-close').addEventListener('click', () => {

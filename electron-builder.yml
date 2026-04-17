@@ -54,3 +54,13 @@ portable:
   # NIENTE portableEnvVariable — electron-store usa app.getPath('userData')
   # che è SEMPRE %APPDATA%/dj-library-manager-config su Windows, indipendentemente
   # da dove sta l'exe (USB, Desktop, Documenti, ecc.).
+
+# ── Auto-update ────────────────────────────────────────────────────────
+# electron-updater legge da GitHub Releases pubbliche. Ogni release
+# deve contenere il nuovo DJ_Library_Manager.exe + latest.yml.
+publish:
+  provider: github
+  owner: nicorossii
+  repo: dj-library-manager
+  private: false
+  releaseType: release

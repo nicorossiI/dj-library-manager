@@ -197,6 +197,14 @@ function createMainFlow() {
   createTray();
   attachCloseToTray(mainWindow);
 
+  // Auto-updater (no-op in dev): controlla subito + ogni 4h
+  try {
+    const updaterService = require('./updaterService');
+    updaterService.init(mainWindow);
+  } catch (e) {
+    console.warn('[updater init]', e.message);
+  }
+
   // Auto-start del watcher se configurato dall'utente
   try {
     const enabled = store.get('watcherEnabled', false);
@@ -211,27 +219,51 @@ function createMainFlow() {
       const genreClassifier = require('../services/genreClassifierService');
       const analysisCache = require('../services/analysisCache');
       analysisCache.initCache(folder);
-      watcherService.start(folder, async (filePath) => {
-        try {
-          const track = await metadataService.readTrack(filePath);
-          try { await fingerprintService.fingerprintTrack(track); } catch { /* skip */ }
-          try { await bpmService.detectBpmIfMissing(track); } catch { /* skip */ }
-          try { await keyService.detectKeyIfMissing(track); } catch { /* skip */ }
-          try { await acrcloudService.recognizeSingleTrack(track); } catch { /* skip */ }
+      const analysisQueue = require('../services/analysisQueue');
+      // Il callback del watcher accoda sulla queue condivisa. Se l'utente
+      // sposta 50 file nella cartella, chokidar emette 50 `add` events, ma la
+      // queue processa massimo N alla volta (CONFIG.analysisConcurrency=3).
+      // Evita rate-limit cascata su Shazam/ACRCloud.
+      watcherService.start(folder, (filePath) => {
+        analysisQueue.enqueue(async () => {
           try {
-            const cls = await genreClassifier.classify(track);
-            track.detectedGenre = cls.genre;
-            track.vocalsLanguage = cls.language;
-          } catch { /* skip */ }
-          try { analysisCache.saveCache(); } catch { /* skip */ }
-          if (global.showWindowsNotification) {
-            const title = track.recognizedTitle || track.localTitle || path.basename(filePath);
-            const artist = track.recognizedArtist || track.localArtist || '';
-            global.showWindowsNotification('added', {
-              body: artist ? `${artist} — ${title}` : title,
-            });
+            const track = await metadataService.readTrack(filePath);
+            try { await fingerprintService.fingerprintTrack(track); }
+            catch (e) { console.warn('[Watcher fp]', path.basename(filePath), e.message); }
+            try { await bpmService.detectBpmIfMissing(track); }
+            catch (e) { console.warn('[Watcher bpm]', path.basename(filePath), e.message); }
+            try { await keyService.detectKeyIfMissing(track); }
+            catch (e) { console.warn('[Watcher key]', path.basename(filePath), e.message); }
+            try { await acrcloudService.recognizeSingleTrack(track); }
+            catch (e) { console.warn('[Watcher acr]', path.basename(filePath), e.message); }
+            try {
+              const cls = await genreClassifier.classify(track);
+              track.detectedGenre = cls.genre;
+              track.vocalsLanguage = cls.language;
+            } catch (e) { console.warn('[Watcher classify]', path.basename(filePath), e.message); }
+            try { analysisCache.saveCache(); }
+            catch (e) { console.warn('[Watcher cache]', e.message); }
+            if (global.showWindowsNotification) {
+              const title = track.recognizedTitle || track.localTitle || path.basename(filePath);
+              const artist = track.recognizedArtist || track.localArtist || '';
+              global.showWindowsNotification('added', {
+                body: artist ? `${artist} — ${title}` : title,
+              });
+            }
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('watcher:file-processed', { track });
+            }
+          } catch (err) {
+            console.warn('[Watcher] Errore file:', filePath, err.message);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('watcher:file-error', {
+                filePath, error: err.message,
+              });
+            }
           }
-        } catch { /* skip */ }
+        }, path.basename(filePath)).catch((err) => {
+          console.warn('[Watcher queue]', filePath, err?.message);
+        });
       });
     }
   } catch (err) {
@@ -295,6 +327,13 @@ function registerWizardHandlers() {
         try {
           const acrcloudService = require('../services/acrcloudService');
           acrcloudService.setCredentials(payload.acrcloud);
+        } catch { /* noop */ }
+      }
+      if (payload.replicateToken) {
+        store.set('replicateToken', payload.replicateToken);
+        try {
+          const aiGenreService = require('../services/aiGenreService');
+          aiGenreService.setReplicateToken(payload.replicateToken);
         } catch { /* noop */ }
       }
       store.set('notificationsEnabled', !!payload.notificationsEnabled);

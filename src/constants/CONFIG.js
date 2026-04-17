@@ -71,6 +71,22 @@ const CONFIG = Object.freeze({
     requestTimeoutMs: 10_000,    // timeout singola request
   }),
 
+  // ── Concorrenza pool di analisi (p-queue condivisa) ──────────────────
+  // Un solo worker pool per:
+  //   - pipeline analysis:start / library:analyzeFull
+  //   - watcher (add event) — previene rate-limit cascata su bulk-add
+  // Default 3 è un buon bilanciamento. Preset Fast/Precise sovrascrivono.
+  analysis: Object.freeze({
+    defaultConcurrency: 3,
+    min: 1,
+    max: 8,
+    presets: Object.freeze({
+      fast:    Object.freeze({ concurrency: 5, acrTimeoutMs:  8_000, label: 'Veloce' }),
+      normal:  Object.freeze({ concurrency: 3, acrTimeoutMs: 12_000, label: 'Bilanciato' }),
+      precise: Object.freeze({ concurrency: 1, acrTimeoutMs: 20_000, label: 'Preciso' }),
+    }),
+  }),
+
   // ── Fingerprint Chromaprint ────────────────────────────────────────────
   fingerprint: Object.freeze({
     fpcalcLength: 120,           // secondi analizzati da fpcalc

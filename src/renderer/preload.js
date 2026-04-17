@@ -10,7 +10,7 @@
 
 'use strict';
 
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webUtils, shell } = require('electron');
 
 const invoke = (ch, ...args) => ipcRenderer.invoke(ch, ...args);
 
@@ -47,6 +47,7 @@ const api = {
   // ── Tab DOPPIONI ──────────────────────────────────────────────────
   findDuplicates: (tracks) => invoke('library:findDuplicates', tracks),
   findCrossMixDuplicates: (tracks) => invoke('duplicates:cross-mix', tracks),
+  autoDeleteDuplicates: (paths) => invoke('duplicates:auto-delete', paths || null),
 
   // ── Tab RINOMINA ──────────────────────────────────────────────────
   previewRename:  (tracks) => invoke('library:rename', { tracks }),
@@ -74,6 +75,7 @@ const api = {
   testApi:      () => invoke('config:testApi'),     // legacy: ritorna {online,reason,responseTime}
   testApiFull:  () => invoke('config:test-api'),    // spec: ritorna {success,responseTime,error}
   testShazam:   () => invoke('shazam:test'),        // { ok, message }
+  testReplicate: (token) => invoke('replicate:test', token || null),
 
   // ── Drop zone helper (Electron v32+: File.path rimosso, serve webUtils)
   getPathForFile: (file) => {
@@ -85,6 +87,7 @@ const api = {
   openFolder: (path) => invoke('shell:open-folder', path),
   openFile:   (path) => invoke('shell:open-file', path),
   copyText:   (text) => invoke('shell:copy-text', text),
+  openExternal: (url) => { try { shell.openExternal(url); } catch { /* noop */ } },
 
   // ── Eventi push da main ───────────────────────────────────────────
   onProgress:           listener('library:progress'),
@@ -98,6 +101,13 @@ const api = {
   onUpdateProgress:     listener('library:update-progress'),
   onWatcherProcessed:   listener('watcher:file-processed'),
   onWatcherError:       listener('watcher:file-error'),
+
+  // ── Auto-updater ─────────────────────────────────────────────────
+  updateInstallNow:  () => invoke('update:install-now'),
+  updateCheck:       () => invoke('update:check'),
+  onUpdateAvailable: listener('update:available'),
+  onUpdateDownload:  listener('update:progress'),
+  onUpdateReady:     listener('update:ready'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

@@ -82,7 +82,9 @@ async function fetchCoverArt(track) {
     if (releaseMbid) {
       buf = await fetchArtworkBuffer(releaseMbid, 'release');
     }
-  } catch { /* noop */ }
+  } catch (e) {
+    console.warn('[artwork release]', track?.fileName, e.message);
+  }
 
   // Tentativo 2 (fallback): CAA con il recording MBID direttamente (raro ma supportato)
   if (!buf) {
@@ -105,7 +107,9 @@ async function fetchCoverArt(track) {
       track.artworkFetched = true;
       return true;
     }
-  } catch { /* noop */ }
+  } catch (e) {
+    console.warn('[artwork id3 write]', track?.fileName, e.message);
+  }
   return false;
 }
 
@@ -149,7 +153,9 @@ async function fetchCoverArtFromShazam(track) {
       track.artworkSource = 'shazam';
       return true;
     }
-  } catch { /* fail-soft */ }
+  } catch (e) {
+    console.warn('[artwork shazam]', track?.fileName, e.message);
+  }
   return false;
 }
 
@@ -167,7 +173,9 @@ async function fetchCoverArtAll(tracks, onProgress) {
       // 2) Fallback MusicBrainz Cover Art Archive (richiede MBID)
       if (!ok) ok = await fetchCoverArt(t);
       if (ok) added++;
-    } catch { /* noop */ }
+    } catch (e) {
+      console.warn('[artwork all]', t?.fileName, e.message);
+    }
     if (typeof onProgress === 'function') {
       try { onProgress(i + 1, list.length, t); } catch { /* noop */ }
     }

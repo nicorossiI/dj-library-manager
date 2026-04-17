@@ -43,6 +43,8 @@ const metadataService = require('../services/metadataService');
 const fingerprintService = require('../services/fingerprintService');
 const acrcloudService = require('../services/acrcloudService');
 const shazamService = require('../services/shazamService');
+const aiGenreService = require('../services/aiGenreService');
+const analysisQueue = require('../services/analysisQueue');
 const duplicateService = require('../services/duplicateService');
 const renameService = require('../services/renameService');
 const genreClassifier = require('../services/genreClassifierService');
@@ -154,6 +156,12 @@ function registerIpcHandlers({ store, getMainWindow }) {
           openAsHidden: true,
         });
       }
+      if ('replicateToken' in p) {
+        try { aiGenreService.setReplicateToken(p.replicateToken || ''); } catch { /* noop */ }
+      }
+      if ('analysisConcurrency' in p) {
+        try { analysisQueue.setConcurrency(p.analysisConcurrency); } catch { /* noop */ }
+      }
       const acr = store.get('acrcloud') || {};
       acrcloudService.setCredentials(acr);
       return ok(store.store);
@@ -181,6 +189,14 @@ function registerIpcHandlers({ store, getMainWindow }) {
     const acr = store.get('acrcloud') || {};
     acrcloudService.setCredentials(acr);
   } catch { /* noop */ }
+  try {
+    const rt = store.get('replicateToken', '');
+    if (rt) aiGenreService.setReplicateToken(rt);
+  } catch (err) { console.warn('[boot] replicateToken:', err.message); }
+  try {
+    const c = store.get('analysisConcurrency', 3);
+    analysisQueue.setConcurrency(c);
+  } catch (err) { console.warn('[boot] analysisConcurrency:', err.message); }
 
   // ─────────────────────────────────────────────────────────────────
   // Folder / files picker
@@ -193,26 +209,32 @@ function registerIpcHandlers({ store, getMainWindow }) {
   // ─────────────────────────────────────────────────────────────────
 
   async function _processNewFile(filePath, senderOrNull) {
+    const fname = path.basename(filePath);
     try {
       const track = await metadataService.readTrack(filePath);
-      try { await fingerprintService.fingerprintTrack(track); } catch { /* skip */ }
-      try { await bpmService.detectBpmIfMissing(track); } catch { /* skip */ }
-      try { await keyService.detectKeyIfMissing(track); } catch { /* skip */ }
-      try { await acrcloudService.recognizeSingleTrack(track); } catch { /* skip */ }
+      try { await fingerprintService.fingerprintTrack(track); }
+      catch (e) { emitLog('warn', '⚠️', `[fp] ${fname}: ${e.message}`); }
+      try { await bpmService.detectBpmIfMissing(track); }
+      catch (e) { emitLog('warn', '⚠️', `[bpm] ${fname}: ${e.message}`); }
+      try { await keyService.detectKeyIfMissing(track); }
+      catch (e) { emitLog('warn', '⚠️', `[key] ${fname}: ${e.message}`); }
+      try { await acrcloudService.recognizeSingleTrack(track); }
+      catch (e) { emitLog('warn', '⚠️', `[acr] ${fname}: ${e.message}`); }
       try {
         const cls = await genreClassifier.classify(track);
         track.detectedGenre = cls.genre;
         track.vocalsLanguage = cls.language;
         track.classificationConfidence = cls.confidence;
         track.classificationSource = cls.source;
-      } catch { /* skip */ }
+      } catch (e) { emitLog('warn', '⚠️', `[classify] ${fname}: ${e.message}`); }
 
-      try { analysisCache.saveCache(); } catch { /* skip */ }
-      emitLog('success', '🎵', `Watcher: ${path.basename(filePath)} → ${track.recognizedArtist || track.localArtist || '?'} - ${track.recognizedTitle || track.localTitle || '?'}`);
+      try { analysisCache.saveCache(); }
+      catch (e) { console.warn('[Watcher cache]', e.message); }
+      emitLog('success', '🎵', `Watcher: ${fname} → ${track.recognizedArtist || track.localArtist || '?'} - ${track.recognizedTitle || track.localTitle || '?'}`);
       if (senderOrNull) senderOrNull.send('watcher:file-processed', { track });
     } catch (err) {
       const human = humanize(err);
-      emitLog('error', '❌', `Watcher: ${path.basename(filePath)} — ${human}`);
+      emitLog('error', '❌', `Watcher: ${fname} — ${human}`);
       if (senderOrNull) senderOrNull.send('watcher:file-error', { filePath, error: human });
     }
   }
@@ -224,10 +246,19 @@ function registerIpcHandlers({ store, getMainWindow }) {
       if (!fs.existsSync(folder)) throw new Error(`Cartella non esiste: ${folder}`);
       analysisCache.initCache(folder);
       const sender = event?.sender || null;
-      watcherService.start(folder, (filePath) => _processNewFile(filePath, sender));
+      // Ogni `add` event viene accodato sulla queue condivisa (max N concorrenze).
+      // Essenziale per bulk-add di 50+ file senza saturare Shazam/ACR rate-limit.
+      watcherService.start(folder, (filePath) => {
+        analysisQueue.enqueue(
+          () => _processNewFile(filePath, sender),
+          path.basename(filePath),
+        ).catch(err => {
+          emitLog('error', '❌', `Watcher queue: ${path.basename(filePath)} — ${err?.message}`);
+        });
+      });
       store.set('watchFolder', folder);
       store.set('watcherActive', true);
-      emitLog('info', '👁️', `Watcher attivo su ${folder}`);
+      emitLog('info', '👁️', `Watcher attivo su ${folder} (concorrenza ${analysisQueue.getStats().concurrency})`);
       return ok({ folder, active: true });
     } catch (e) {
       return fail(new Error(humanize(e)));
@@ -343,9 +374,22 @@ function registerIpcHandlers({ store, getMainWindow }) {
     appState.analysisRunning = true;
     appState.sourceFolder = sourceFolder || appState.sourceFolder;
 
+    // Applica preset concurrency se impostato
+    try {
+      const c = store.get('analysisConcurrency', 3);
+      analysisQueue.setConcurrency(c);
+    } catch { /* noop */ }
+
+    // Progress del pool → push al renderer per stats barra analisi
+    analysisQueue.clear();
+    analysisQueue.setProgressCallback(({ completed, total, pending }) => {
+      send('analysis:queue-progress', { completed, total, pending });
+    });
+
     try {
       // ── Cache persistente (fingerprint/bpm/key) ──────────────────
-      try { analysisCache.initCache(appState.sourceFolder); } catch { /* skip */ }
+      try { analysisCache.initCache(appState.sourceFolder); }
+      catch (err) { emitLog('warn', '⚠️', `Cache init: ${err.message}`); }
 
       // ── FASE 1 — Lettura metadati ────────────────────────────────
       emitAnalysisProgress({ phase: 1, phaseProgress: 0, phaseLabel: 'Lettura metadati...' });
@@ -388,10 +432,44 @@ function registerIpcHandlers({ store, getMainWindow }) {
       // Persisti BPM/Key nei tag ID3 (best-effort, solo .mp3)
       for (const t of tracks) {
         if (t.bpmDetected || t.keyDetected) {
-          try { await metadataService.writeAnalysisTags(t); } catch { /* skip */ }
+          try { await metadataService.writeAnalysisTags(t); }
+          catch (e) { console.warn('[id3 tags]', t.fileName, e.message); }
         }
       }
       emitAnalysisProgress({ phase: 2, phaseProgress: 100, phaseLabel: 'Fingerprint + BPM + Key completati' });
+
+      // ── FASE 2C — AI genre (DiscogsEffNet) sulla BASE audio ──
+      // Parallelizzato via p-queue: max N concorrenze (CONFIG.analysisConcurrency).
+      // Serve a distinguere "afrohouse edit di una canzone reggaeton" dal
+      // pezzo originale reggaeton. Popola track.aiGenre → priorità massima
+      // nella cascata del genreClassifier.
+      if (aiGenreService.isAvailable()) {
+        emitAnalysisProgress({ phase: 2, phaseProgress: 100, phaseLabel: 'AI genre (DiscogsEffNet)...' });
+        let doneAi = 0;
+        const aiTasks = tracks.map(t => analysisQueue.enqueue(async () => {
+          try {
+            const ai = await aiGenreService.classifyGenreFromAudio(t);
+            if (ai?.genre) {
+              t.aiGenre = ai.genre;
+              t.aiGenreConfidence = ai.confidence;
+              t.aiTop = ai.top;
+              emitLog('info', '🤖', `AI: ${t.fileName} → ${ai.genre} (${ai.confidence}%)`);
+            }
+          } catch (err) {
+            emitLog('warn', '⚠️', `AI genre [${t.fileName}]: ${err?.message || err}`);
+          } finally {
+            doneAi++;
+            emitAnalysisProgress({
+              phase: 2, phaseProgress: 100,
+              phaseLabel: `AI genre ${doneAi}/${tracks.length}`,
+              currentFile: t.fileName,
+            });
+          }
+        }, t.fileName));
+        await Promise.allSettled(aiTasks);
+      } else {
+        emitLog('info', 'ℹ️', 'AI genre non disponibile (modello/Python mancanti) — skip');
+      }
 
       // ── FASE 3 — ACRCloud (skippable se offline) ─────────────────
       if (acrcloudService.hasCredentials()) {
@@ -414,25 +492,42 @@ function registerIpcHandlers({ store, getMainWindow }) {
         emitAnalysisProgress({ phase: 3, phaseProgress: 90, phaseLabel: 'ACRCloud skippato (offline)' });
       }
 
-      // ── FASE 3C — Cover art via Cover Art Archive (solo track con mbid) ─
-      const trackWithMbid = tracks.filter(t => t && t.mbid && !t.artworkFetched);
-      if (trackWithMbid.length > 0) {
+      // ── FASE 3C — Cover art parallelizzata via queue ──
+      // Include tutti i track con mbid OPPURE coverArtUrl (da Shazam).
+      // Prima fetchCoverArtAll era seriale con N+1 HTTP → con 1000 track
+      // poteva arrivare a ore. Ora concorrenza N.
+      const tracksForArt = tracks.filter(t => t && !t.artworkFetched && (t.mbid || t.coverArtUrl));
+      if (tracksForArt.length > 0) {
         emitAnalysisProgress({
           phase: 3, phaseProgress: 90,
-          phaseLabel: `Cover art (Cover Art Archive) per ${trackWithMbid.length} track...`,
+          phaseLabel: `Cover art per ${tracksForArt.length} track...`,
         });
-        try {
-          const { added } = await artworkService.fetchCoverArtAll(trackWithMbid, (done, total, t) => {
+        let addedArt = 0;
+        let doneArt = 0;
+        const artTasks = tracksForArt.map(t => analysisQueue.enqueue(async () => {
+          try {
+            // 1) Prova Shazam CDN se abbiamo URL (più veloce)
+            let ok = false;
+            if (t.coverArtUrl && typeof artworkService.fetchCoverArtFromShazam === 'function') {
+              ok = await artworkService.fetchCoverArtFromShazam(t);
+            }
+            // 2) Fallback Cover Art Archive se mbid presente
+            if (!ok && t.mbid) {
+              ok = await artworkService.fetchCoverArt(t);
+            }
+            if (ok) addedArt++;
+          } catch (err) {
+            emitLog('warn', '⚠️', `Cover art [${t.fileName}]: ${err.message}`);
+          } finally {
+            doneArt++;
             emitAnalysisProgress({
-              phase: 3, phaseProgress: 90 + Math.round(pct(done, total) / 10),
-              phaseLabel: 'Cover art (Cover Art Archive)...',
-              currentFile: t?.fileName,
+              phase: 3, phaseProgress: 90 + Math.round((doneArt / tracksForArt.length) * 10),
+              phaseLabel: 'Cover art...', currentFile: t.fileName,
             });
-          });
-          if (added > 0) emitLog('success', '🎨', `Cover art scaricate: ${added}/${trackWithMbid.length}`);
-        } catch (err) {
-          emitLog('warn', '⚠️', `Cover art fallita: ${err.message}`);
-        }
+          }
+        }, t.fileName));
+        await Promise.allSettled(artTasks);
+        if (addedArt > 0) emitLog('success', '🎨', `Cover art scaricate: ${addedArt}/${tracksForArt.length}`);
       }
       emitAnalysisProgress({ phase: 3, phaseProgress: 100, phaseLabel: 'Riconoscimento + cover art completati' });
 
@@ -454,15 +549,17 @@ function registerIpcHandlers({ store, getMainWindow }) {
           const confPct = Math.round((cls.confidence || 0) * 100);
           const vocalsInfo = d.vocalsArtists?.length
             ? d.vocalsArtists.slice(0, 3).join(', ')
-            : '—';
+            : (t.languageSource ? `via ${t.languageSource}` : '—');
           emitLog('info', '🎯',
             `${t.fileName}\n` +
             `   Base: ${cls.genre} [${cls.source} ${confPct}%]  ·  ` +
             `Vocals: ${cls.language} [${vocalsInfo}]  ·  ` +
-            `Tipo: ${d.type || 'single'}\n` +
+            `Tipo: ${d.type || 'single'}  ·  BPM: ${t.bpm || '—'}\n` +
             `   → ${destFolder}`
           );
-        } catch { /* log opzionale */ }
+        } catch (e) {
+          console.warn('[log classify]', t.fileName, e.message);
+        }
 
         emitAnalysisProgress({
           phase: 4, phaseProgress: pct(i + 1, tracks.length),
@@ -587,11 +684,14 @@ function registerIpcHandlers({ store, getMainWindow }) {
         // Phase 2.5 — BPM + KEY (offline analysis)
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
-          try { await bpmService.detectBpmIfMissing(t); } catch { /* skip */ }
-          try { await keyService.detectKeyIfMissing(t); } catch { /* skip */ }
+          try { await bpmService.detectBpmIfMissing(t); }
+          catch (e) { emitLog('warn', '⚠️', `[bpm] ${t.fileName}: ${e.message}`); }
+          try { await keyService.detectKeyIfMissing(t); }
+          catch (e) { emitLog('warn', '⚠️', `[key] ${t.fileName}: ${e.message}`); }
           // Persisti i nuovi valori nei tag ID3 (best-effort, solo .mp3)
           if (t.bpmDetected || t.keyDetected) {
-            try { await metadataService.writeAnalysisTags(t); } catch { /* skip */ }
+            try { await metadataService.writeAnalysisTags(t); }
+            catch (e) { console.warn('[id3 tags]', t.fileName, e.message); }
           }
           emitAnalysisProgress({
             phase: 2, phaseProgress: pct(i + 1, list.length),
@@ -692,6 +792,43 @@ function registerIpcHandlers({ store, getMainWindow }) {
     } catch (e) { return fail(e); }
   });
 
+  // Auto-delete doppioni: sposta nel Cestino tutti i file non-recommended
+  // dei gruppi di duplicati. Reversibile (shell.trashItem), non distruttivo.
+  // Input: array di filePath da spostare nel cestino. Se vuoto, usa
+  // appState.duplicateReport e sposta tutti i non-recommended.
+  ipcMain.handle('duplicates:auto-delete', async (_e, filePaths = null) => {
+    try {
+      let paths = [];
+      if (Array.isArray(filePaths) && filePaths.length > 0) {
+        paths = filePaths.filter(Boolean);
+      } else {
+        const groups = appState.duplicateReport || [];
+        for (const g of groups) {
+          for (const it of (g.items || [])) {
+            if (!it.recommended && it.filePath) paths.push(it.filePath);
+          }
+        }
+      }
+
+      const deleted = [];
+      const errors = [];
+      for (const p of paths) {
+        try {
+          if (!fs.existsSync(p)) continue;
+          await shell.trashItem(p);
+          deleted.push(p);
+          // Rimuovi il track dallo state così non viene organizzato dopo
+          const idx = appState.loadedTracks.findIndex(t => t.filePath === p);
+          if (idx >= 0) appState.loadedTracks.splice(idx, 1);
+        } catch (err) {
+          errors.push({ path: p, error: String(err?.message || err) });
+        }
+      }
+      emitLog('success', '🗑️', `Doppioni nel cestino: ${deleted.length}${errors.length ? ` (${errors.length} errori)` : ''}`);
+      return ok({ deleted: deleted.length, errors });
+    } catch (e) { return fail(e); }
+  });
+
   // ─────────────────────────────────────────────────────────────────
   // Rename
   // ─────────────────────────────────────────────────────────────────
@@ -722,11 +859,19 @@ function registerIpcHandlers({ store, getMainWindow }) {
   // ─────────────────────────────────────────────────────────────────
   // Organize: preview + execute (spec: organize:preview / organize:execute)
   // ─────────────────────────────────────────────────────────────────
+  function getCustomOrganizeRoot() {
+    try {
+      const v = store.get('organizeOutputRoot', '');
+      return (v && String(v).trim()) ? String(v).trim() : null;
+    } catch { return null; }
+  }
+
   async function doOrganizePreview({ tracks, sourceFolder } = {}) {
     const list = tracks || appState.loadedTracks;
     const folder = sourceFolder || appState.sourceFolder;
     if (!folder) throw new Error('sourceFolder mancante');
-    const r = await organizerService.previewOrganization(list, folder);
+    const customRoot = getCustomOrganizeRoot();
+    const r = await organizerService.previewOrganization(list, folder, { customRoot });
     appState.organizePreview = r;
     appState.outputRoot = r.outputRoot;
     return r;
@@ -736,6 +881,7 @@ function registerIpcHandlers({ store, getMainWindow }) {
     const list = tracks || appState.loadedTracks;
     const folder = sourceFolder || appState.sourceFolder;
     if (!folder) throw new Error('sourceFolder mancante');
+    const customRoot = getCustomOrganizeRoot();
     const r = await organizerService.executeOrganization(
       list, folder,
       (done, total, fileName, targetFolder) => {
@@ -746,6 +892,7 @@ function registerIpcHandlers({ store, getMainWindow }) {
         send('organize:progress', payload);
         send('library:progress', payload);
       },
+      { customRoot },
     );
     // CRUCIALE: i Track sono stati mutati in-place con newFilePath/rekordboxUri
     appState.organizedTracks = list;
@@ -856,6 +1003,28 @@ function registerIpcHandlers({ store, getMainWindow }) {
     try { return ok(await shazamService.testConnection()); }
     catch (e) { return fail(e); }
   });
+
+  // Replicate API: verifica che il token sia valido (GET /v1/account)
+  ipcMain.handle('replicate:test', async (_e, maybeToken) => {
+    try {
+      const axios = require('axios');
+      const token = String(
+        maybeToken || process.env.REPLICATE_TOKEN || store.get('replicateToken') || ''
+      ).trim();
+      if (!token) return ok({ ok: false, message: 'Token non configurato' });
+      const r = await axios.get('https://api.replicate.com/v1/account', {
+        headers: { 'Authorization': `Token ${token}` },
+        timeout: 10_000,
+        validateStatus: s => s < 500,
+      });
+      if (r.status === 200) {
+        return ok({ ok: true, message: `Account: ${r.data?.username || 'valido'}` });
+      }
+      return ok({ ok: false, message: `Token non valido (${r.status})` });
+    } catch (e) {
+      return ok({ ok: false, message: `Errore: ${e.message}` });
+    }
+  });
   // Legacy alias
   ipcMain.handle('config:testApi', async () => {
     try {
@@ -905,6 +1074,18 @@ function registerIpcHandlers({ store, getMainWindow }) {
   });
   ipcMain.handle('shell:copyText', async (_e, text) => {
     try { clipboard.writeText(String(text || '')); return ok(true); } catch (e) { return fail(e); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Auto-updater
+  // ─────────────────────────────────────────────────────────────────
+  ipcMain.handle('update:install-now', () => {
+    try { require('./updaterService').installNow(); return ok(true); }
+    catch (e) { return fail(e); }
+  });
+  ipcMain.handle('update:check', () => {
+    try { require('./updaterService').checkForUpdates(); return ok(true); }
+    catch (e) { return fail(e); }
   });
 
   // ─────────────────────────────────────────────────────────────────

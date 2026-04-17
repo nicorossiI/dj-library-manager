@@ -27,6 +27,7 @@ const { detectFromTrack } = require('../utils/languageUtils');
 const { parseFileNameDetailed } = require('../utils/stringUtils');
 const discogsService = require('./discogsService');
 const lastfmService = require('./lastfmService');
+const vocalLanguageService = require('./vocalLanguageService');
 
 // ---------------------------------------------------------------------------
 // normalizeFileName — strip estensione, underscore, suffix scraper/tagging
@@ -213,6 +214,17 @@ async function classify(track) {
     track.vocalsLanguage = fileDetails.language;
   }
 
+  // ── 0) AI genre (DiscogsEffNet / modello audio) ──────────────────
+  // Se un modello audio ha classificato la BASE audio (priorità massima,
+  // perché è l'unica fonte che distingue un edit afrohouse di una canzone
+  // reggaeton dal pezzo originale).
+  if (track.aiGenre) {
+    const ai = String(track.aiGenre).toLowerCase().trim();
+    if (ai && ai !== 'unknown') {
+      return finalize(ai, 0.95, track, 'ai_genre');
+    }
+  }
+
   // ── 1) Percorso cartella padre ───────────────────────────────────
   const pathGenre = detectGenreFromPath(filePath);
   if (pathGenre) return finalize(pathGenre, 0.90, track, 'path');
@@ -282,8 +294,19 @@ async function classify(track) {
   return finalize('unknown', 0.1, track, 'none');
 }
 
-function finalize(genre, confidence, track, source) {
-  const language = detectFromTrack(track);
+async function finalize(genre, confidence, track, source) {
+  // Prima tenta detectFromTrack esistente (rapido, sync)
+  let language = detectFromTrack(track);
+  // Poi cerca di migliorare con vocalLanguageService (artisti noti + franc)
+  // se il risultato è generico ("mixed" / "unknown" / vuoto)
+  if (!language || language === 'mixed' || language === 'unknown') {
+    try {
+      const refined = await vocalLanguageService.detectVocalLanguage(track);
+      if (refined && refined !== 'mixed') language = refined;
+      else if (!language) language = refined || 'mixed';
+    } catch { /* noop: usa language esistente */ }
+  }
+  track.vocalsLanguage = language;
   if (track.bpm && Number.isFinite(track.bpm)) {
     const rangeKey = genreToBpmRangeKey(genre);
     const range = rangeKey ? GENRE_RULES.BPM_RANGES[rangeKey] : null;

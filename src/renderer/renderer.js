@@ -106,6 +106,23 @@ function renderSourceBadge(sourceKey) {
   return `<span class="badge badge-source ${info.cls}">${escapeHtml(info.label)}</span>`;
 }
 
+const LANG_LABELS = {
+  'es':    '🇪🇸 Spagnolo',
+  'it':    '🇮🇹 Italiano',
+  'it_es': '🇮🇹🇪🇸 IT+ES',
+  'en':    '🇬🇧 Inglese',
+  'mixed': '🌍 Misto',
+  'instrumental': '🎹 Strumentale',
+};
+
+function renderLanguageBadge(lang) {
+  if (!lang) return '';
+  const key = String(lang).toLowerCase();
+  const label = LANG_LABELS[key];
+  if (!label) return '';
+  return `<span class="badge badge-lang-${key}">${label}</span>`;
+}
+
 // ============================================================================
 // TAB SWITCHING
 // ============================================================================
@@ -343,25 +360,38 @@ async function startAnalysis() {
 }
 
 async function runDoEverythingPipeline() {
-  const stats = { renamed: 0, folders: 0, duplicates: 0, xmlOk: false };
+  const stats = { renamed: 0, folders: 0, duplicates: 0, deleted: 0, xmlOk: false };
   try {
-    // 1. Rinomina automatica tutti i file che hanno canRename=true
-    pushLog({ level: 'info', icon: '🏷️', message: 'Rinomina automatica in corso...' });
-    await refreshRenamePreview();
-    const renamable = (state.renamePreview || []).filter(p => p.canRename).map(p => p.trackId);
-    if (renamable.length > 0) {
-      const rr = await window.api.executeRename({
-        tracks: state.files, selectedIds: renamable, dryRun: false,
-      });
-      if (rr.ok) {
-        stats.renamed = rr.data?.stats?.success || 0;
-        pushLog({ level: 'success', icon: '✓', message: `Rinominati ${stats.renamed} file` });
+    // 1. Auto-elimina doppioni (sposta nel Cestino, reversibile)
+    //    Tiene la versione consigliata, manda il resto al Cestino di Windows.
+    const toDeletePaths = [];
+    for (const g of (state.duplicates || [])) {
+      for (const it of (g.items || [])) {
+        if (!it.recommended && it.filePath) toDeletePaths.push(it.filePath);
+      }
+    }
+    if (toDeletePaths.length > 0) {
+      pushLog({ level: 'info', icon: '🗑️', message: `Elimino ${toDeletePaths.length} doppioni (nel Cestino)...` });
+      const del = await window.api.autoDeleteDuplicates(toDeletePaths);
+      if (del.ok) {
+        stats.deleted = del.data?.deleted || 0;
+        // Rimuovi anche lato renderer
+        const removed = new Set(toDeletePaths);
+        state.files = state.files.filter(t => !removed.has(t.filePath));
+        state.duplicates = [];
+        renderFilesTable();
       } else {
-        pushLog({ level: 'error', icon: '❌', message: `Rinomina: ${rr.error}` });
+        pushLog({ level: 'error', icon: '❌', message: `Auto-delete: ${del.error}` });
       }
     }
 
-    // 2. Organizza
+    // 2. Prepara nomi nuovi (usati dall'organize per copiare con nome pulito).
+    //    NON rinomina fisicamente gli originali — la rinomina è applicata
+    //    nella COPIA dentro "DJ Library Organizzata".
+    await refreshRenamePreview();
+    stats.renamed = (state.renamePreview || []).filter(p => p.canRename).length;
+
+    // 3. Organizza: copia i file con il newFileName nelle cartelle genere/lingua
     pushLog({ level: 'info', icon: '📁', message: 'Organizzazione cartelle in corso...' });
     await maybeRefreshOrganize();
     if (state.organize.outputRoot) {
@@ -372,27 +402,24 @@ async function runDoEverythingPipeline() {
         state.organize.completed = true;
         state.organize.outputRoot = or.data.outputRoot;
         stats.folders = or.data.foldersCreated || state.organize.stats?.foldersToCreate || 0;
-        pushLog({ level: 'success', icon: '✓', message: `Organizzate in ${or.data.outputRoot}` });
+        pushLog({ level: 'success', icon: '✓', message: `Libreria pronta in ${or.data.outputRoot}` });
       } else {
         pushLog({ level: 'error', icon: '❌', message: `Organizza: ${or.error}` });
       }
     }
 
-    // 3. Rekordbox XML
+    // 4. Rekordbox XML
     if (state.organize.completed && state.organize.outputRoot) {
       pushLog({ level: 'info', icon: '🎛️', message: 'Generazione rekordbox.xml...' });
       const xr = await window.api.rekordboxGenerate();
       if (xr.ok) {
         state.rekordbox.xmlPath = xr.data.xmlPath;
         stats.xmlOk = true;
-        pushLog({ level: 'success', icon: '✓', message: `rekordbox.xml pronto: ${xr.data.xmlPath}` });
+        pushLog({ level: 'success', icon: '✓', message: `rekordbox.xml pronto` });
       } else {
         pushLog({ level: 'error', icon: '❌', message: `Rekordbox: ${xr.error}` });
       }
     }
-
-    // 4. Stats doppioni
-    stats.duplicates = (state.duplicates || []).reduce((a, g) => a + (g.items?.length || 0), 0);
 
     showFinalResultModal(stats);
   } catch (err) {
@@ -403,7 +430,7 @@ async function runDoEverythingPipeline() {
 function showFinalResultModal(stats) {
   $('#fr-renamed').textContent = stats.renamed || 0;
   $('#fr-folders').textContent = stats.folders || 0;
-  $('#fr-dupes').textContent = stats.duplicates || 0;
+  $('#fr-dupes').textContent = stats.deleted || 0;
   $('#fr-xml-status').textContent = stats.xmlOk
     ? 'Rekordbox aggiornato'
     : 'Rekordbox non generato';
@@ -749,6 +776,10 @@ function renderRenameTable() {
     const typeIcon = type === 'mix' ? '🎛️' : type === 'mashup' ? '🔀' : '🎵';
     const checked = state.renameSelectedIds.has(it.trackId) ? 'checked' : '';
     const stratLabel = strategyLabel(it.strategy);
+    const langBadge = renderLanguageBadge(t?.vocalsLanguage);
+    const baseGenreBadge = t?.detectedGenre && t?.classificationSource === 'ai_genre'
+      ? `<span class="badge badge-base-genre">🎵 ${escapeHtml(String(t.detectedGenre))}</span>`
+      : '';
     return `<tr>
       <td><input type="checkbox" data-rn-id="${escapeHtml(it.trackId)}" ${checked}></td>
       <td>${typeIcon}</td>
@@ -758,6 +789,8 @@ function renderRenameTable() {
       <td>
         <span class="badge badge-strategy s-${it.strategy}">${stratLabel}</span>
         ${renderSourceBadge(it.track?.recognitionSource)}
+        ${baseGenreBadge}
+        ${langBadge}
         ${it.track?.classificationSource && it.track.classificationSource !== it.track?.recognitionSource
           ? renderSourceBadge(it.track.classificationSource) : ''}
       </td>
@@ -1074,6 +1107,65 @@ async function loadSettings() {
   // Notifiche + avvio con Windows
   $('#set-notifications-enabled').checked = r.data?.notificationsEnabled !== false;
   $('#set-start-with-windows').checked = !!r.data?.startWithWindows;
+
+  // Cartella destinazione organize
+  const organizeRoot = r.data?.organizeOutputRoot || '';
+  const setOrgRoot = $('#set-organize-root');
+  if (setOrgRoot) setOrgRoot.textContent = organizeRoot || '(default: dentro cartella sorgente)';
+
+  // Replicate AI token
+  const replToken = r.data?.replicateToken || '';
+  const setRepl = $('#set-replicate-token');
+  if (setRepl) setRepl.value = replToken;
+  updateReplicateStateLabel(!!replToken);
+
+  // Concorrenza analisi
+  const c = Number(r.data?.analysisConcurrency || 3);
+  const cSlider = $('#set-concurrency');
+  const cVal = $('#set-concurrency-value');
+  if (cSlider) cSlider.value = String(c);
+  if (cVal) cVal.textContent = String(c);
+}
+
+function updateReplicateStateLabel(configured, valid = null) {
+  const el = $('#set-replicate-state');
+  if (!el) return;
+  if (valid === true)  { el.textContent = '🟢 Attivo'; el.classList.add('active'); el.classList.remove('inactive'); return; }
+  if (valid === false) { el.textContent = '🔴 Token non valido'; el.classList.remove('active'); el.classList.add('inactive'); return; }
+  el.textContent = configured ? '🟡 Da verificare' : '🔴 Non configurato';
+  el.classList.toggle('active', false);
+  el.classList.toggle('inactive', true);
+}
+
+async function testReplicateConnection() {
+  const tokenInput = $('#set-replicate-token');
+  const token = tokenInput?.value?.trim() || null;
+  const el = $('#set-replicate-state');
+  if (el) el.textContent = '⏳ Verifica...';
+  const r = await window.api.testReplicate?.(token);
+  if (r?.ok && r.data?.ok) updateReplicateStateLabel(true, true);
+  else updateReplicateStateLabel(!!token, false);
+}
+
+async function pickOrganizeOutputRoot() {
+  const r = await window.api.selectFolder();
+  if (!r.ok || !r.data) return;
+  const setOrg = $('#set-organize-root');
+  if (setOrg) setOrg.textContent = r.data;
+  const pathEl = $('#output-root-path');
+  if (pathEl) pathEl.textContent = r.data;
+  await window.api.setSettings({ organizeOutputRoot: r.data });
+  pushLog({ level: 'info', icon: '📁', message: `Destinazione organize: ${r.data}` });
+  // Se siamo nel tab organizza, refresh preview
+  if (state.analysisDone) await maybeRefreshOrganize();
+}
+
+async function resetOrganizeOutputRoot() {
+  await window.api.setSettings({ organizeOutputRoot: '' });
+  const setOrg = $('#set-organize-root');
+  if (setOrg) setOrg.textContent = '(default: dentro cartella sorgente)';
+  pushLog({ level: 'info', icon: '📁', message: 'Destinazione organize: default' });
+  if (state.analysisDone) await maybeRefreshOrganize();
 }
 
 function updateWatcherStateLabel(active) {
@@ -1093,6 +1185,8 @@ async function saveSettings() {
     },
     notificationsEnabled: $('#set-notifications-enabled').checked,
     startWithWindows: $('#set-start-with-windows').checked,
+    replicateToken: $('#set-replicate-token')?.value?.trim() || '',
+    analysisConcurrency: Number($('#set-concurrency')?.value) || 3,
   };
   const r = await window.api.setSettings(payload);
   if (!r.ok) { pushLog({ level: 'error', icon: '❌', message: `Settings: ${r.error}` }); return; }
@@ -1168,6 +1262,11 @@ function setupSettingsSliders() {
   const mMin = $('#set-mix-min');
   const mVal = $('#set-mix-value');
   mMin.addEventListener('input', () => { mVal.textContent = `${mMin.value} min`; });
+  const cSlider = $('#set-concurrency');
+  const cVal = $('#set-concurrency-value');
+  if (cSlider && cVal) {
+    cSlider.addEventListener('input', () => { cVal.textContent = cSlider.value; });
+  }
 }
 
 // ============================================================================
@@ -1311,6 +1410,9 @@ async function init() {
   // Tab 5
   $('#btn-organize-execute').addEventListener('click', executeOrganize);
   $('#btn-goto-rekordbox').addEventListener('click', () => switchTab('rekordbox'));
+  $('#btn-pick-output-root')?.addEventListener('click', pickOrganizeOutputRoot);
+  $('#btn-reset-output-root')?.addEventListener('click', resetOrganizeOutputRoot);
+  $('#btn-set-organize-root')?.addEventListener('click', pickOrganizeOutputRoot);
 
   // Tab 6
   $('#btn-generate-xml').addEventListener('click', generateRekordboxXml);
@@ -1323,6 +1425,11 @@ async function init() {
       pushLog({ level: 'success', icon: '📋', message: 'Percorso copiato negli appunti' });
     }
   });
+  $('#btn-toggle-rkb-details')?.addEventListener('click', () => {
+    const el = $('#rkb-full-details');
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? '' : 'none';
+  });
 
   // Modals + settings
   setupModals();
@@ -1330,6 +1437,13 @@ async function init() {
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-test-api').addEventListener('click', testApiConnection);
   $('#btn-test-shazam')?.addEventListener('click', testShazamConnection);
+  $('#btn-test-replicate')?.addEventListener('click', testReplicateConnection);
+  $('#lnk-replicate')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    // shell.openExternal via preload se esiste; altrimenti window.open
+    if (window.api.openExternal) window.api.openExternal('https://replicate.com/account/api-tokens');
+    else window.open('https://replicate.com/account/api-tokens', '_blank');
+  });
 
   // IPC events
   setupIpcEvents();
@@ -1366,9 +1480,53 @@ async function init() {
     if (state.organize.outputRoot) window.api.openFolder(state.organize.outputRoot);
   });
 
+  // Auto-updater banner wiring
+  setupUpdateBanner();
+
   // Boot async
   await loadSettings();
   await refreshApiStatus();
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Auto-updater banner
+// ─────────────────────────────────────────────────────────────────
+function setupUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  const msg = document.getElementById('update-message');
+  const wrap = document.getElementById('update-progress-wrap');
+  const bar = document.getElementById('update-progress-bar');
+  const btnInstall = document.getElementById('btn-install-now');
+  const btnDismiss = document.getElementById('btn-dismiss-update');
+  if (!banner || !msg) return;
+
+  window.api.onUpdateAvailable(({ version, message }) => {
+    msg.textContent = `⬇️ ${message || `Versione ${version} in download`}`;
+    banner.style.display = 'flex';
+    if (wrap) wrap.style.display = 'block';
+    if (bar) bar.style.width = '0%';
+    if (btnInstall) btnInstall.style.display = 'none';
+  });
+
+  window.api.onUpdateDownload(({ percent }) => {
+    if (bar) bar.style.width = `${Math.max(0, Math.min(100, Number(percent) || 0))}%`;
+  });
+
+  window.api.onUpdateReady(({ version }) => {
+    msg.textContent = `✅ Versione ${version} pronta!`;
+    if (wrap) wrap.style.display = 'none';
+    if (btnInstall) btnInstall.style.display = 'inline-flex';
+    banner.style.display = 'flex';
+  });
+
+  if (btnInstall) {
+    btnInstall.addEventListener('click', () => {
+      try { window.api.updateInstallNow(); } catch { /* noop */ }
+    });
+  }
+  if (btnDismiss) {
+    btnDismiss.addEventListener('click', () => { banner.style.display = 'none'; });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);
