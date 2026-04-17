@@ -1,0 +1,785 @@
+<!--
+  src/renderer/index.html
+  DJ Library Manager — UI Dark Glassmorphism da DJ booth professionale.
+  Font: Inter (UI) + Space Mono (mono). Icone: Font Awesome 6.5.
+-->
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'; img-src 'self' data:" />
+  <title>DJ Library Manager</title>
+
+  <!-- Google Fonts: Inter + Space Mono (fallback di sistema se offline) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 7 (bundled offline via node_modules — sempre disponibile) -->
+  <link rel="stylesheet" href="../../node_modules/@fortawesome/fontawesome-free/css/all.min.css">
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       HEADER
+       ============================================================ -->
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-logo"><i class="fa-solid fa-headphones"></i></span>
+      <span class="brand-name">DJ Library Manager</span>
+    </div>
+
+    <div class="header-right">
+      <!-- Watcher indicator -->
+      <div class="watcher-indicator" id="watcher-status" data-tooltip="Monitora una cartella per nuovi file audio">
+        <span class="watcher-dot inactive" id="watcher-dot"></span>
+        <span id="watcher-label">Watcher non attivo</span>
+      </div>
+
+      <!-- Stato API -->
+      <div id="api-status" class="api-status status-offline" data-tooltip="Stato connessione ACRCloud">
+        <span class="status-dot"></span>
+        <span class="status-label">ACRCloud Offline</span>
+      </div>
+
+      <button id="btn-help" class="icon-btn" data-tooltip="Guida rapida">
+        <i class="fa-solid fa-circle-question"></i>
+      </button>
+      <button id="btn-open-settings" class="icon-btn" data-tooltip="Impostazioni">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       TABS NAVIGATION
+       ============================================================ -->
+  <nav class="tabs-nav" role="tablist">
+    <button class="tab-btn active" data-tab="carica">
+      <i class="fa-solid fa-folder-open"></i> Carica
+    </button>
+    <button class="tab-btn" data-tab="analisi">
+      <i class="fa-solid fa-magnifying-glass-chart"></i> Analisi
+    </button>
+    <button class="tab-btn" data-tab="doppioni">
+      <i class="fa-solid fa-triangle-exclamation"></i> Doppioni
+    </button>
+    <button class="tab-btn" data-tab="rinomina">
+      <i class="fa-solid fa-pen-to-square"></i> Rinomina
+    </button>
+    <button class="tab-btn" data-tab="organizza">
+      <i class="fa-solid fa-folder-tree"></i> Organizza
+    </button>
+    <button class="tab-btn" data-tab="rekordbox">
+      <i class="fa-solid fa-sliders"></i> Rekordbox
+    </button>
+  </nav>
+
+  <!-- ============================================================
+       MAIN CONTENT
+       ============================================================ -->
+  <main class="app-main">
+
+    <!-- ══════════ TAB 1: CARICA ══════════ -->
+    <section class="tab-panel active" data-panel="carica">
+      <div class="mode-toggle">
+        <label class="mode-option">
+          <input type="radio" name="mode" value="new" checked>
+          <span><i class="fa-solid fa-wand-magic-sparkles"></i> Nuova libreria</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="mode" value="update">
+          <span><i class="fa-solid fa-plus"></i> Aggiungi a libreria esistente</span>
+        </label>
+      </div>
+
+      <div id="existing-library-picker" class="existing-library-picker" style="display:none">
+        <p class="muted">Seleziona la cartella <code>DJ Library Organizzata</code> esistente (deve contenere <code>.djlm_cache.json</code>)</p>
+        <div class="existing-library-row">
+          <button id="btn-pick-existing" class="btn">
+            <i class="fa-solid fa-folder-open"></i> Seleziona Libreria Esistente
+          </button>
+          <span id="existing-library-path"></span>
+        </div>
+      </div>
+
+      <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone-inner">
+          <div class="drop-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+          <div class="drop-title">Trascina qui le tue canzoni</div>
+          <div class="drop-subtitle">oppure</div>
+          <div class="drop-buttons">
+            <button id="btn-select-folder" class="btn btn-primary">
+              <i class="fa-solid fa-folder-open"></i> Seleziona Cartella
+            </button>
+            <button id="btn-select-files" class="btn">
+              <i class="fa-solid fa-music"></i> Seleziona File
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="counters-row">
+        <div class="counter">
+          <span class="counter-num" id="cnt-total">0</span>
+          <span class="counter-label">Totale</span>
+        </div>
+        <div class="counter">
+          <span class="counter-num" id="cnt-singles">0</span>
+          <span class="counter-label">Singoli</span>
+        </div>
+        <div class="counter">
+          <span class="counter-num" id="cnt-mix">0</span>
+          <span class="counter-label">Mix</span>
+        </div>
+        <div class="counter">
+          <span class="counter-num" id="cnt-mashup">0</span>
+          <span class="counter-label">Mashup</span>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="files-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Nome file</th>
+              <th>Durata</th>
+              <th>Dimensione</th>
+              <th>BPM</th>
+              <th>Key</th>
+              <th>Tipo</th>
+              <th>Stato</th>
+            </tr>
+          </thead>
+          <tbody id="files-tbody">
+            <tr class="empty-row"><td colspan="8">Nessun file caricato</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="action-row">
+        <button id="btn-start-analysis" class="btn-do-everything" disabled>
+          <i class="fa-solid fa-bolt"></i> FAI TUTTO IN AUTOMATICO
+          <span class="btn-subtitle">
+            Analizza • Rinomina • Organizza • Aggiorna Rekordbox
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ══════════ TAB 2: ANALISI ══════════ -->
+    <section class="tab-panel" data-panel="analisi">
+      <div class="card">
+        <div id="phase-label" class="phase-label">
+          <i class="fa-solid fa-circle-notch fa-spin" style="margin-right:6px; color:var(--accent-red); display:none"></i>
+          In attesa di avvio
+        </div>
+        <div class="progress-wrap">
+          <div class="progress">
+            <div id="analysis-progress-bar" class="progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progress-pct">0%</span>
+            <span id="progress-eta" class="muted"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <i class="fa-solid fa-check" style="color:var(--accent-green)"></i>
+          <div>
+            <div class="stat-value" id="stat-recognized">0</div>
+            <div class="stat-label">Riconosciuti</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-xmark" style="color:var(--accent-orange)"></i>
+          <div>
+            <div class="stat-value" id="stat-unrecognized">0</div>
+            <div class="stat-label">Non riconosciuti</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-layer-group" style="color:var(--accent-purple)"></i>
+          <div>
+            <div class="stat-value" id="stat-mix">0</div>
+            <div class="stat-label">Mix</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-fingerprint" style="color:var(--accent-cyan)"></i>
+          <div>
+            <div class="stat-value" id="stat-fp">0</div>
+            <div class="stat-label">Fingerprint</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-gauge-high" style="color:var(--accent-red)"></i>
+          <div>
+            <div class="stat-value" id="stat-bpm">0</div>
+            <div class="stat-label">BPM</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-music" style="color:var(--accent-orange)"></i>
+          <div>
+            <div class="stat-value" id="stat-keys">0</div>
+            <div class="stat-label">Chiavi</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-terminal" style="margin-right:6px"></i> Log in tempo reale</h3>
+          <button id="btn-clear-log" class="btn btn-ghost btn-sm">Pulisci</button>
+        </div>
+        <div id="log-list" class="log-list"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ TAB 3: DOPPIONI ══════════ -->
+    <section class="tab-panel" data-panel="doppioni">
+      <div class="section-header">
+        <div class="section-title">
+          <i class="fa-solid fa-triangle-exclamation" style="color:var(--accent-red)"></i>
+          Doppioni trovati
+        </div>
+      </div>
+
+      <div id="dupes-section-mix-vs-lib" class="dupe-section">
+        <button class="dupe-section-toggle" data-section="mix-vs-lib">
+          <span class="caret"><i class="fa-solid fa-chevron-down"></i></span>
+          <span class="dot dot-red"></span>
+          CANZONE NEL MIX E IN LIBRERIA
+          <span id="cnt-mix-vs-lib" class="badge-counter">0 gruppi</span>
+        </button>
+        <div class="dupe-section-body" id="body-mix-vs-lib"></div>
+      </div>
+
+      <div id="dupes-section-singles" class="dupe-section">
+        <button class="dupe-section-toggle" data-section="singles">
+          <span class="caret"><i class="fa-solid fa-chevron-down"></i></span>
+          <span class="dot dot-orange"></span>
+          SINGOLI DUPLICATI
+          <span id="cnt-singles-dup" class="badge-counter">0 gruppi</span>
+        </button>
+        <div class="dupe-section-body" id="body-singles"></div>
+      </div>
+
+      <div id="dupes-section-mix-mix" class="dupe-section">
+        <button class="dupe-section-toggle" data-section="mix-mix">
+          <span class="caret"><i class="fa-solid fa-chevron-down"></i></span>
+          <span class="dot dot-yellow"></span>
+          RIPETUTA IN PIÙ MIX
+          <span id="cnt-mix-mix" class="badge-counter">0 gruppi</span>
+        </button>
+        <div class="dupe-section-body" id="body-mix-mix"></div>
+      </div>
+
+      <div id="dupes-section-cross-mix" class="dupe-section">
+        <button class="dupe-section-toggle" data-section="cross-mix">
+          <span class="caret"><i class="fa-solid fa-chevron-down"></i></span>
+          <span class="dot dot-red"></span>
+          STESSA CANZONE IN PIÙ MIX
+          <span id="cnt-cross-mix" class="badge-counter">0 canzoni</span>
+        </button>
+        <div class="dupe-section-body" id="body-cross-mix"></div>
+      </div>
+
+      <div id="dupes-section-in-library" class="dupe-section" style="display:none">
+        <button class="dupe-section-toggle" data-section="in-library">
+          <span class="caret"><i class="fa-solid fa-chevron-down"></i></span>
+          <span class="dot dot-purple"></span>
+          GIÀ PRESENTE IN LIBRERIA
+          <span id="cnt-in-library" class="badge-counter">0 file</span>
+        </button>
+        <div class="dupe-section-body" id="body-in-library"></div>
+      </div>
+
+      <div class="dupe-footer">
+        <div class="dupe-footer-stats">
+          Spazio recuperabile: <strong id="dupe-recoverable">0 MB</strong>
+          <span class="sep">|</span>
+          File selezionati: <strong id="dupe-selected-count">0</strong>
+        </div>
+        <div class="dupe-footer-actions">
+          <button id="btn-apply-recommendations" class="btn btn-primary">
+            <i class="fa-solid fa-star"></i> Applica Consigliati
+          </button>
+          <button id="btn-export-dupe-report" class="btn">
+            <i class="fa-solid fa-file-export"></i> Esporta Report
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-trash" style="margin-right:6px"></i> File da eliminare</h3>
+        </div>
+        <div id="dupe-delete-list" class="delete-list">
+          <p class="muted">Nessun file selezionato.</p>
+        </div>
+        <div class="card-actions">
+          <button id="btn-open-dupe-folder" class="btn">
+            <i class="fa-solid fa-folder-open"></i> Apri cartella in Esplora File
+          </button>
+        </div>
+        <div class="banner banner-warn" style="margin-top:12px">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <div>
+            <strong>L'app non elimina file automaticamente.</strong>
+            Apri la cartella ed elimina manualmente i file evidenziati.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ TAB 4: RINOMINA ══════════ -->
+    <section class="tab-panel" data-panel="rinomina">
+      <div class="section-header">
+        <div class="section-title">
+          <i class="fa-solid fa-pen-to-square" style="color:var(--accent-purple)"></i>
+          Rinomina file
+        </div>
+        <div class="filter-row" style="margin:0">
+          <button class="filter-btn active" data-filter="all">Tutti</button>
+          <button class="filter-btn" data-filter="recognized">Riconosciuti</button>
+          <button class="filter-btn" data-filter="check">Da verificare</button>
+          <button class="filter-btn" data-filter="unrecognized">Non Riconosciuti</button>
+          <button class="filter-btn" data-filter="mashup">Mashup</button>
+          <button class="filter-btn" data-filter="mix">Mix</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="rename-table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="rename-select-all"></th>
+              <th>Tipo</th>
+              <th>Nome attuale</th>
+              <th></th>
+              <th>Nome proposto</th>
+              <th>Strategia / Fonte</th>
+            </tr>
+          </thead>
+          <tbody id="rename-tbody">
+            <tr class="empty-row"><td colspan="6">Nessuna anteprima — completa l'analisi prima.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="action-row">
+        <button id="btn-rename-preview" class="btn">
+          <i class="fa-solid fa-eye"></i> Anteprima
+        </button>
+        <button id="btn-rename-select-all" class="btn">
+          <i class="fa-solid fa-square-check"></i> Seleziona Tutti
+        </button>
+        <button id="btn-rename-execute" class="btn btn-primary">
+          <i class="fa-solid fa-pen-to-square"></i> Rinomina Selezionati
+        </button>
+      </div>
+    </section>
+
+    <!-- ══════════ TAB 5: ORGANIZZA ══════════ -->
+    <section class="tab-panel" data-panel="organizza">
+      <div class="section-header">
+        <div class="section-title">
+          <i class="fa-solid fa-folder-tree" style="color:var(--accent-orange)"></i>
+          Organizza libreria
+        </div>
+      </div>
+
+      <div class="banner banner-info">
+        <i class="fa-solid fa-circle-info"></i>
+        <div>
+          I file originali <strong>NON vengono toccati</strong>.
+          Verrà creata una copia organizzata in <code>"DJ Library Organizzata"</code>,
+          poi potrai generare <code>rekordbox.xml</code> per Rekordbox.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Output</h3></div>
+        <div class="output-path">
+          <span class="muted">Verrà creata:</span>
+          <code id="output-root-path">—</code>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Anteprima struttura</h3></div>
+        <div id="organize-tree" class="folder-tree">
+          <p class="muted">Nessuna anteprima — completa l'analisi prima.</p>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <i class="fa-solid fa-file-audio" style="color:var(--accent-cyan)"></i>
+          <div>
+            <div class="stat-value" id="org-files">0</div>
+            <div class="stat-label">File totali</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-hard-drive" style="color:var(--accent-purple)"></i>
+          <div>
+            <div class="stat-value" id="org-size">0 MB</div>
+            <div class="stat-label">Dimensione</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-folder" style="color:var(--accent-orange)"></i>
+          <div>
+            <div class="stat-value" id="org-folders">0</div>
+            <div class="stat-label">Cartelle</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-circle-question" style="color:var(--accent-red)"></i>
+          <div>
+            <div class="stat-value" id="org-unclassified">0</div>
+            <div class="stat-label">Da Classificare</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button id="btn-organize-execute" class="btn btn-primary btn-xl" disabled>
+          <i class="fa-solid fa-folder-plus"></i> CREA LIBRERIA ORGANIZZATA
+        </button>
+      </div>
+
+      <div class="progress-wrap" id="org-progress-wrap" style="display:none; margin-top:12px">
+        <div class="progress">
+          <div id="org-progress-bar" class="progress-bar"></div>
+        </div>
+        <div class="progress-meta">
+          <span id="org-progress-label">0 / 0</span>
+        </div>
+      </div>
+
+      <div id="org-completed-banner" class="banner banner-success" style="display:none; margin-top:16px">
+        <i class="fa-solid fa-circle-check"></i>
+        <div>
+          <strong>Libreria organizzata!</strong>
+          <div style="margin-top:8px">
+            <button id="btn-goto-rekordbox" class="btn btn-primary btn-sm">
+              <i class="fa-solid fa-arrow-right"></i> Genera rekordbox.xml
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ TAB 6: REKORDBOX ══════════ -->
+    <section class="tab-panel" data-panel="rekordbox">
+      <div class="rkb-header">
+        <h2><i class="fa-solid fa-sliders" style="margin-right:8px"></i>Esporta in Rekordbox</h2>
+        <p class="muted">Genera il file <code>rekordbox.xml</code> per importare la libreria organizzata direttamente in Rekordbox.</p>
+      </div>
+
+      <div id="rkb-update-summary" class="card" style="display:none">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-plus" style="margin-right:6px"></i>Modalità: Aggiornamento libreria esistente</h3>
+        </div>
+        <ul class="rkb-update-list">
+          <li>Nuove tracce aggiunte: <strong id="rkb-update-added">0</strong></li>
+          <li>Già presenti (saltate): <strong id="rkb-update-skipped">0</strong></li>
+          <li><span id="rkb-update-xml-status">—</span></li>
+        </ul>
+        <p class="muted">In Rekordbox: clicca <strong>Reload</strong> sull'XML per vedere le nuove tracce.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Anteprima struttura playlist</h3></div>
+        <div id="rkb-playlist-preview" class="playlist-preview">
+          <p class="muted">Completa l'organizzazione prima per vedere la struttura.</p>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <i class="fa-solid fa-list" style="color:var(--accent-purple)"></i>
+          <div>
+            <div class="stat-value" id="rkb-playlists">0</div>
+            <div class="stat-label">Playlist</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-folder" style="color:var(--accent-orange)"></i>
+          <div>
+            <div class="stat-value" id="rkb-folders">0</div>
+            <div class="stat-label">Cartelle</div>
+          </div>
+        </div>
+        <div class="stat">
+          <i class="fa-solid fa-file-audio" style="color:var(--accent-cyan)"></i>
+          <div>
+            <div class="stat-value" id="rkb-tracks">0</div>
+            <div class="stat-label">Tracce totali</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button id="btn-generate-xml" class="btn btn-success btn-xl" disabled>
+          <i class="fa-solid fa-file-export"></i> GENERA rekordbox.xml
+        </button>
+      </div>
+
+      <div id="rkb-instructions" class="instructions" style="display:none">
+        <div class="instructions-header">
+          <i class="fa-solid fa-circle-check" style="margin-right:6px"></i>
+          <strong>rekordbox.xml generato con successo!</strong>
+        </div>
+        <div class="instructions-body">
+          <h4>Come importare in Rekordbox</h4>
+          <ol>
+            <li>Apri Rekordbox</li>
+            <li>File → Preferences → Advanced</li>
+            <li>Sezione "rekordbox xml" → "Imported Library" → seleziona:<br>
+              <code id="xml-path-display">—</code>
+            </li>
+            <li>Clicca OK e <strong>riavvia</strong> Rekordbox</li>
+            <li>Nel pannello sinistro: clicca "rekordbox xml"</li>
+            <li>Tasto destro su "Playlists" → "Import Playlist"</li>
+            <li>Seleziona TUTTE le tracce nel pannello → tasto destro → "Import To Collection"<br>
+              <em class="muted">(necessario per un bug noto di Rekordbox — non saltarlo)</em>
+            </li>
+          </ol>
+          <div class="banner banner-warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <div>
+              <strong>Non spostare i file</strong> dopo l'importazione. Se sposti la USB su altro PC con lettera drive diversa, rigenera <code>rekordbox.xml</code>.
+            </div>
+          </div>
+          <div class="instructions-actions">
+            <button id="btn-open-output" class="btn">
+              <i class="fa-solid fa-folder-open"></i> Apri cartella output
+            </button>
+            <button id="btn-copy-xml-path" class="btn">
+              <i class="fa-solid fa-copy"></i> Copia percorso
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============================================================
+       MODAL: SETTINGS
+       ============================================================ -->
+  <div id="modal-settings" class="modal hidden">
+    <div class="modal-backdrop" data-close="settings"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-gear" style="margin-right:8px"></i>Impostazioni</h2>
+        <button class="modal-close" data-close="settings">×</button>
+      </div>
+      <div class="modal-body">
+        <fieldset>
+          <legend>ACRCloud</legend>
+          <label>Host
+            <input type="text" id="set-acr-host" placeholder="identify-eu-west-1.acrcloud.com" />
+          </label>
+          <label>Access Key
+            <input type="text" id="set-acr-key" />
+          </label>
+          <label>Access Secret
+            <input type="password" id="set-acr-secret" />
+          </label>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:8px">
+            <button id="btn-test-api" class="btn">
+              <i class="fa-solid fa-plug"></i> Testa Connessione
+            </button>
+            <span id="api-test-result" class="muted"></span>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Monitoraggio automatico</legend>
+          <label>Cartella da monitorare
+            <div class="set-watcher-row">
+              <code id="set-watch-folder" class="set-watch-path">—</code>
+              <button id="btn-pick-watch-folder" class="btn">
+                <i class="fa-solid fa-folder-open"></i> Cambia
+              </button>
+            </div>
+          </label>
+          <div class="set-watcher-state">
+            <span>Stato:</span>
+            <span id="set-watcher-state-label" class="watch-state-label inactive">🔴 Non attivo</span>
+          </div>
+          <label class="set-toggle">
+            <input type="checkbox" id="set-watcher-enabled">
+            <span><strong>Attiva monitoraggio</strong> — processa automaticamente i nuovi file</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Notifiche Windows</legend>
+          <label class="set-toggle">
+            <input type="checkbox" id="set-notifications-enabled">
+            <span><strong>Abilita notifiche</strong> — avviso quando aggiungo una canzone o trovo un doppione</span>
+          </label>
+          <label class="set-toggle">
+            <input type="checkbox" id="set-start-with-windows">
+            <span><strong>Avvia con Windows</strong> — l'app parte nascosta nel vassoio al login</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Soglia doppioni</legend>
+          <label>
+            <div style="display:flex; justify-content:space-between">
+              <span>Similarità minima</span>
+              <strong id="set-dupe-value" style="color:var(--accent-red)">90%</strong>
+            </div>
+            <input type="range" id="set-dupe-threshold" min="70" max="100" value="90" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Durata minima mix</legend>
+          <label>
+            <div style="display:flex; justify-content:space-between">
+              <span>Soglia mix/singolo</span>
+              <strong id="set-mix-value" style="color:var(--accent-red)">8 min</strong>
+            </div>
+            <input type="range" id="set-mix-min" min="3" max="15" value="8" />
+          </label>
+        </fieldset>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="settings">Annulla</button>
+        <button id="btn-save-settings" class="btn btn-primary">
+          <i class="fa-solid fa-check"></i> Salva
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: CONFIRM RENAME
+       ============================================================ -->
+  <div id="modal-confirm-rename" class="modal hidden">
+    <div class="modal-backdrop" data-close="confirm-rename"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2>Conferma rinomina</h2>
+        <button class="modal-close" data-close="confirm-rename">×</button>
+      </div>
+      <div class="modal-body">
+        <p>Stai per rinominare <strong id="confirm-rename-count" style="color:var(--accent-red)">0</strong> file.</p>
+        <p>Il nome originale viene salvato nel tag ID3 come backup.</p>
+        <p><strong>Continua?</strong></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="confirm-rename">Annulla</button>
+        <button id="btn-confirm-rename" class="btn btn-primary">
+          <i class="fa-solid fa-check"></i> Conferma
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: HELP
+       ============================================================ -->
+  <div id="modal-help" class="modal hidden">
+    <div class="modal-backdrop" data-close="help"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-circle-question" style="margin-right:8px"></i>Come funziona DJ Library Manager</h2>
+        <button class="modal-close" data-close="help">×</button>
+      </div>
+      <div class="modal-body help-body">
+
+        <div class="help-section">
+          <h3><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent-purple)"></i> Modalità Automatica <span class="help-pill">Consigliata</span></h3>
+          <ul>
+            <li>Scarica la musica come al solito</li>
+            <li>L'app la processa da sola in background</li>
+            <li>Apri Rekordbox e clicca Ricarica (🔄)</li>
+            <li>Le canzoni sono già nelle playlist giuste</li>
+          </ul>
+        </div>
+
+        <div class="help-section">
+          <h3><i class="fa-solid fa-hand-pointer" style="color:var(--accent-cyan)"></i> Modalità Manuale</h3>
+          <ol>
+            <li>Trascina i file nell'app</li>
+            <li>Clicca <strong>"FAI TUTTO IN AUTOMATICO"</strong></li>
+            <li>Aspetta che finisce</li>
+            <li>Apri Rekordbox e clicca Ricarica</li>
+          </ol>
+        </div>
+
+        <div class="help-section">
+          <h3><i class="fa-solid fa-triangle-exclamation" style="color:var(--accent-orange)"></i> Doppioni</h3>
+          <p>Il file con <strong>★ CONSIGLIATO</strong> ha qualità migliore. Elimina gli altri manualmente usando il bottone "Apri cartella in Esplora File".</p>
+        </div>
+
+        <div class="help-section">
+          <h3><i class="fa-solid fa-sliders" style="color:var(--accent-red)"></i> Rekordbox — come importare</h3>
+          <ol>
+            <li>Apri Rekordbox</li>
+            <li><strong>File → Preferenze → Avanzate</strong></li>
+            <li>Sezione <code>rekordbox xml</code> → seleziona <code>rekordbox.xml</code></li>
+            <li>Clicca 🔄 nel pannello <strong>rekordbox xml</strong></li>
+            <li>Tasto destro → Import Playlist</li>
+          </ol>
+          <div class="banner banner-warn" style="margin-top:10px">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <div>Non spostare i file dopo l'importazione. Se cambi PC o lettera USB, rigenera <code>rekordbox.xml</code>.</div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close="help">Chiudi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: RISULTATO FAI TUTTO
+       ============================================================ -->
+  <div id="modal-final-result" class="modal hidden">
+    <div class="modal-backdrop" data-close="final-result"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-circle-check" style="margin-right:8px; color:var(--accent-green)"></i>Fatto!</h2>
+        <button class="modal-close" data-close="final-result">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted" style="margin-bottom:12px">Ecco cosa ho fatto per te:</p>
+        <ul class="final-result-list">
+          <li><span class="fr-icon">🎵</span> <strong id="fr-renamed">0</strong> canzoni rinominate</li>
+          <li><span class="fr-icon">📁</span> <strong id="fr-folders">0</strong> cartelle create</li>
+          <li><span class="fr-icon">⚠️</span> <strong id="fr-dupes">0</strong> doppioni trovati <button id="fr-goto-dupes" class="btn btn-ghost btn-sm">Vedi</button></li>
+          <li><span class="fr-icon">🎛️</span> <strong id="fr-xml-status">Rekordbox aggiornato</strong></li>
+        </ul>
+      </div>
+      <div class="modal-footer">
+        <button id="fr-open-folder" class="btn"><i class="fa-solid fa-folder-open"></i> Apri Cartella</button>
+        <button class="btn btn-primary" data-close="final-result">Chiudi</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

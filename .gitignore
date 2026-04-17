@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+Thumbs.db
+# Binari bundled (sostituire dopo clone)
+assets/bin/fpcalc.exe
+assets/bin/fpcalc-mac

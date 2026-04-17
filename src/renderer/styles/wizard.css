@@ -1,0 +1,244 @@
+/**
+ * wizard.css — Stile dedicato al wizard di primo avvio.
+ * Riusa variabili di main.css (colori, font, radius, ecc.)
+ */
+
+html, body.wizard-body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--gradient-bg);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  user-select: none;
+}
+
+.wizard-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Barra titolo custom (frame:false) ─────────────────────── */
+.wizard-titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border-glass);
+}
+.wizard-titlebar-brand {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.wizard-titlebar-brand i { color: var(--accent-red); margin-right: 6px; }
+.wizard-titlebar-close {
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+}
+.wizard-titlebar-close:hover {
+  color: var(--accent-red);
+  background: rgba(233,69,96,0.1);
+}
+
+/* ── Progress pallini ──────────────────────────────────────── */
+.wizard-progress {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px 0 4px 0;
+}
+.wiz-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  transition: all var(--transition-med);
+}
+.wiz-dot.active {
+  background: var(--accent-red);
+  box-shadow: 0 0 12px var(--accent-red-glow);
+  transform: scale(1.15);
+}
+.wiz-dot.done {
+  background: var(--accent-purple);
+  box-shadow: 0 0 8px var(--accent-purple-glow);
+}
+
+/* ── Step container ────────────────────────────────────────── */
+.wiz-step {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  padding: 14px 38px 26px 38px;
+  overflow-y: auto;
+}
+.wiz-step.active {
+  display: flex;
+  animation: wiz-fade-in 0.3s ease;
+}
+@keyframes wiz-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wiz-logo {
+  font-size: 40px;
+  color: var(--accent-red);
+  text-align: center;
+  margin: 6px 0 10px 0;
+  text-shadow: 0 0 24px var(--accent-red-glow);
+}
+.wiz-logo-success { color: var(--accent-green); text-shadow: 0 0 24px rgba(16,185,129,0.4); }
+
+.wiz-title {
+  font-size: var(--font-size-2xl);
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 6px;
+  letter-spacing: -0.5px;
+}
+.wiz-subtitle {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  margin-bottom: 18px;
+}
+
+/* ── Card glassmorphism per contenuti step ─────────────────── */
+.wiz-card {
+  background: var(--bg-glass);
+  backdrop-filter: var(--blur-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 18px 22px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 18px;
+}
+
+/* ── Feature list step 1 ───────────────────────────────────── */
+.wiz-feature {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  font-size: var(--font-size-md);
+}
+.wiz-feature + .wiz-feature {
+  border-top: 1px solid var(--border-glass);
+}
+.wiz-feat-icon {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md);
+  background: rgba(233,69,96,0.12);
+  color: var(--accent-red);
+  font-size: 18px;
+}
+
+/* ── Path folder display step 2 ────────────────────────────── */
+.wiz-path {
+  margin: 14px 0 8px 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+  padding: 10px 12px;
+  background: rgba(0,0,0,0.25);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+}
+.wiz-path.has-value { color: var(--accent-green); }
+
+.wiz-note {
+  margin-top: 10px;
+  font-size: var(--font-size-sm);
+}
+
+/* ── Link esterno ACRCloud ─────────────────────────────────── */
+.wiz-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-purple);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.wiz-link:hover { text-decoration: underline; }
+
+/* ── Field ─────────────────────────────────────────────────── */
+.wiz-field {
+  display: block;
+  margin-bottom: 10px;
+}
+.wiz-field > span {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.wiz-field input {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.wiz-field input:focus { border-color: var(--accent-red); }
+
+.wiz-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.wiz-test-row .ok    { color: var(--accent-green); }
+.wiz-test-row .err   { color: var(--accent-red); }
+.wiz-test-row .wait  { color: var(--accent-orange); }
+
+/* ── Checkbox step 4 ───────────────────────────────────────── */
+.wiz-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.wiz-check + .wiz-check { border-top: 1px solid var(--border-glass); }
+.wiz-check input[type="checkbox"] {
+  margin-top: 3px;
+  width: 18px; height: 18px;
+  accent-color: var(--accent-red);
+  cursor: pointer;
+}
+.wiz-check span { display: flex; flex-direction: column; gap: 2px; }
+
+/* ── Action row ────────────────────────────────────────────── */
+.wiz-actions {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.wiz-actions-right {
+  display: flex;
+  gap: 10px;
+}

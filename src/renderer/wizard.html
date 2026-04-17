@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'; img-src 'self' data:" />
+  <title>DJ Library Manager — Setup</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../../node_modules/@fortawesome/fontawesome-free/css/all.min.css">
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+  <link rel="stylesheet" href="styles/wizard.css" />
+</head>
+<body class="wizard-body">
+
+  <div class="wizard-window">
+
+    <div class="wizard-titlebar">
+      <span class="wizard-titlebar-brand">
+        <i class="fa-solid fa-headphones"></i> DJ Library Manager
+      </span>
+      <button id="wiz-close" class="wizard-titlebar-close" title="Chiudi">×</button>
+    </div>
+
+    <div class="wizard-progress">
+      <div class="wiz-dot active" data-step="1"></div>
+      <div class="wiz-dot" data-step="2"></div>
+      <div class="wiz-dot" data-step="3"></div>
+      <div class="wiz-dot" data-step="4"></div>
+    </div>
+
+    <!-- STEP 1 — BENVENUTO -->
+    <section class="wiz-step active" data-step="1">
+      <div class="wiz-logo"><i class="fa-solid fa-headphones"></i></div>
+      <h1 class="wiz-title">DJ Library Manager</h1>
+      <p class="wiz-subtitle">La tua libreria DJ, organizzata in automatico.</p>
+
+      <div class="wiz-card">
+        <div class="wiz-feature">
+          <span class="wiz-feat-icon"><i class="fa-solid fa-magnifying-glass"></i></span>
+          <div><strong>Riconosce</strong> le tue canzoni automaticamente</div>
+        </div>
+        <div class="wiz-feature">
+          <span class="wiz-feat-icon"><i class="fa-solid fa-folder-tree"></i></span>
+          <div><strong>Organizza</strong> in cartelle per genere e lingua</div>
+        </div>
+        <div class="wiz-feature">
+          <span class="wiz-feat-icon"><i class="fa-solid fa-sliders"></i></span>
+          <div><strong>Prepara</strong> tutto per Rekordbox</div>
+        </div>
+      </div>
+
+      <div class="wiz-actions">
+        <span></span>
+        <button class="btn btn-primary btn-xl" data-goto="2">
+          Iniziamo <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 2 — CARTELLA MUSICA -->
+    <section class="wiz-step" data-step="2">
+      <div class="wiz-logo"><i class="fa-solid fa-folder-open"></i></div>
+      <h1 class="wiz-title">Dove scarichi la musica?</h1>
+      <p class="wiz-subtitle">Seleziona la cartella dove salvi i tuoi file MP3. L'app la monitorerà in automatico.</p>
+
+      <div class="wiz-card">
+        <button id="wiz-pick-folder" class="btn btn-primary btn-xl">
+          <i class="fa-solid fa-folder-open"></i> Scegli Cartella
+        </button>
+        <div id="wiz-folder-path" class="wiz-path muted">Nessuna cartella selezionata</div>
+        <p class="wiz-note muted">
+          <i class="fa-solid fa-circle-info"></i>
+          Puoi saltare e configurarla dopo dalle Impostazioni.
+        </p>
+      </div>
+
+      <div class="wiz-actions">
+        <button class="btn" data-goto="1"><i class="fa-solid fa-arrow-left"></i> Indietro</button>
+        <button class="btn btn-primary" data-goto="3">Avanti <i class="fa-solid fa-arrow-right"></i></button>
+      </div>
+    </section>
+
+    <!-- STEP 3 — ACRCLOUD -->
+    <section class="wiz-step" data-step="3">
+      <div class="wiz-logo"><i class="fa-solid fa-cloud"></i></div>
+      <h1 class="wiz-title">Riconoscimento automatico</h1>
+      <p class="wiz-subtitle">Per riconoscere nome e artista delle canzoni serve una chiave API gratuita ACRCloud.</p>
+
+      <div class="wiz-card">
+        <a id="wiz-open-acr-console" class="wiz-link" href="#">
+          <i class="fa-solid fa-up-right-from-square"></i>
+          Apri console.acrcloud.com
+        </a>
+
+        <label class="wiz-field">
+          <span>Host</span>
+          <input type="text" id="wiz-acr-host" placeholder="identify-eu-west-1.acrcloud.com" />
+        </label>
+        <label class="wiz-field">
+          <span>Access Key</span>
+          <input type="text" id="wiz-acr-key" />
+        </label>
+        <label class="wiz-field">
+          <span>Access Secret</span>
+          <input type="password" id="wiz-acr-secret" />
+        </label>
+
+        <div class="wiz-test-row">
+          <button id="wiz-test-api" class="btn">
+            <i class="fa-solid fa-plug"></i> Testa Connessione
+          </button>
+          <span id="wiz-test-result" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="wiz-actions">
+        <button class="btn" data-goto="2"><i class="fa-solid fa-arrow-left"></i> Indietro</button>
+        <div class="wiz-actions-right">
+          <button id="wiz-skip-acr" class="btn btn-ghost">Salta per ora</button>
+          <button class="btn btn-primary" data-goto="4">Avanti <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 4 — PRONTO -->
+    <section class="wiz-step" data-step="4">
+      <div class="wiz-logo wiz-logo-success"><i class="fa-solid fa-circle-check"></i></div>
+      <h1 class="wiz-title">Tutto pronto!</h1>
+      <p class="wiz-subtitle">Ultimi dettagli prima di iniziare.</p>
+
+      <div class="wiz-card">
+        <label class="wiz-check">
+          <input type="checkbox" id="wiz-start-with-windows" checked>
+          <span>
+            <strong>Avvia automaticamente con Windows</strong>
+            <span class="muted">(consigliato — l'app resta nel vassoio di sistema)</span>
+          </span>
+        </label>
+        <label class="wiz-check">
+          <input type="checkbox" id="wiz-notifications" checked>
+          <span>
+            <strong>Abilita notifiche Windows</strong>
+            <span class="muted">(ti avvisa quando una canzone viene aggiunta)</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="wiz-actions">
+        <button class="btn" data-goto="3"><i class="fa-solid fa-arrow-left"></i> Indietro</button>
+        <button id="wiz-finish" class="btn btn-primary btn-xl">
+          <i class="fa-solid fa-rocket"></i> Inizia a usare l'app
+        </button>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="wizard.js"></script>
+</body>
+</html>

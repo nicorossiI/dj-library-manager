@@ -1,0 +1,268 @@
+/**
+ * src/renderer/styles/main.css
+ *
+ * Design system DJ Library Manager — Dark Glassmorphism.
+ * Ispirazione: Rekordbox / Serato / Pioneer XDJ.
+ * Font: Inter (UI) + Space Mono (file names / numeri).
+ * Tutto basato su CSS variables per theming consistente.
+ */
+
+:root {
+  /* ── Colori base ── */
+  --bg-deep:        #080810;
+  --bg-base:        #0d0d1a;
+  --bg-elevated:    #12122a;
+  --bg-glass:       rgba(255, 255, 255, 0.04);
+  --bg-glass-hover: rgba(255, 255, 255, 0.07);
+
+  /* ── Accenti DJ ── */
+  --accent-red:     #e94560;
+  --accent-red-glow: rgba(233, 69, 96, 0.4);
+  --accent-purple:  #8b5cf6;
+  --accent-purple-glow: rgba(139, 92, 246, 0.3);
+  --accent-cyan:    #06b6d4;
+  --accent-green:   #10b981;
+  --accent-orange:  #f59e0b;
+
+  /* ── Legacy aliases (retrocompat CSS pre-esistente) ── */
+  --bg:         var(--bg-base);
+  --panel:      rgba(255, 255, 255, 0.04);
+  --panel-hi:   rgba(255, 255, 255, 0.07);
+  --border:     rgba(255, 255, 255, 0.08);
+  --accent:     var(--accent-red);
+  --warn:       var(--accent-orange);
+  --success:    var(--accent-green);
+  --danger:     var(--accent-red);
+
+  /* ── Gradiente background ambientale ── */
+  --gradient-bg:
+    radial-gradient(ellipse 80% 50% at 20% 20%,
+      rgba(139, 92, 246, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%,
+      rgba(233, 69, 96, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 60% at 50% 50%,
+      rgba(6, 182, 212, 0.05) 0%, transparent 70%),
+    #080810;
+
+  /* ── Testo ── */
+  --text-primary:   #f0f0ff;
+  --text-secondary: #8888aa;
+  --text-dim:       #444466;
+  --text:           var(--text-primary);
+
+  /* ── Bordi glass ── */
+  --border-glass:   rgba(255, 255, 255, 0.08);
+  --border-accent:  rgba(233, 69, 96, 0.5);
+
+  /* ── Ombre ── */
+  --shadow-card:    0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow-red: 0 0 20px rgba(233, 69, 96, 0.3);
+  --shadow-glow-purple: 0 0 20px rgba(139, 92, 246, 0.3);
+
+  /* ── Blur ── */
+  --blur-glass:     blur(16px);
+  --blur-heavy:     blur(32px);
+
+  /* ── Transizioni ── */
+  --transition-fast: 0.15s ease;
+  --transition-med:  0.25s ease;
+  --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition:      var(--transition-fast);
+
+  /* ── Tipografia ── */
+  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Space Mono', 'Courier New', 'Consolas', monospace;
+  --font-size-xs:  11px;
+  --font-size-sm:  13px;
+  --font-size-md:  15px;
+  --font-size-lg:  18px;
+  --font-size-xl:  24px;
+  --font-size-2xl: 32px;
+
+  /* ── Border radius ── */
+  --radius-sm:  6px;
+  --radius-md:  12px;
+  --radius-lg:  18px;
+  --radius-xl:  24px;
+  --radius-full: 9999px;
+  --radius:     var(--radius-md);
+}
+
+/* ── Reset e base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; width: 100%; }
+body {
+  font-family: var(--font-ui);
+  background: var(--gradient-bg);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+h1, h2, h3, h4, h5 {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+}
+h2 { font-size: var(--font-size-xl); }
+h3 { font-size: var(--font-size-lg); }
+h4 { font-size: var(--font-size-md); font-weight: 600; }
+
+p { color: var(--text-secondary); }
+.muted { color: var(--text-secondary); font-size: var(--font-size-sm); }
+
+a { color: var(--accent-red); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Scrollbar custom ── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(233, 69, 96, 0.3);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(233, 69, 96, 0.6); }
+
+/* ── Utility ── */
+.hidden { display: none !important; }
+.text-mono { font-family: var(--font-mono); }
+.text-primary { color: var(--text-primary); }
+.text-dim { color: var(--text-dim); }
+.text-accent { color: var(--accent-red); }
+
+/* ── Header fisso ── */
+.app-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 60px;
+  background: rgba(8, 8, 16, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid var(--border-glass);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+  z-index: 100;
+  box-shadow: 0 1px 0 rgba(233, 69, 96, 0.2);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+.brand-logo {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, var(--accent-red), var(--accent-purple));
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  box-shadow: var(--shadow-glow-red);
+  color: white;
+}
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 17px;
+  transition: var(--transition-fast);
+}
+.icon-btn:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Tabs navigation ── */
+.tabs-nav {
+  position: fixed;
+  top: 60px;
+  left: 0; right: 0;
+  display: flex;
+  gap: 4px;
+  padding: 10px 20px;
+  z-index: 90;
+  background: rgba(8, 8, 16, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-glass);
+  overflow-x: auto;
+}
+
+/* ── Layout principale ── */
+.app-main {
+  margin-top: 116px;
+  padding: 24px;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeSlideIn 0.25s ease; }
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Stato API nel header ── */
+.api-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+.api-status .status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.api-status.status-online .status-dot {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
+}
+.api-status.status-offline .status-dot {
+  background: var(--accent-orange);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+}

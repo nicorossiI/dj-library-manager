@@ -1,0 +1,56 @@
+# electron-builder.yml
+# Build portable Windows — UN SOLO .exe "DJ_Library_Manager.exe".
+# - target: portable (nessun installer, doppio click e parte)
+# - extraResources: assets/bin/ → bin/ (trasporta fpcalc.exe)
+# - asarUnpack su ffmpeg-static: richiesto perché viene invocato come child_process
+# - electron-store scrive sempre in %APPDATA% (gestito in main.js)
+
+appId: com.nicho.djlibrarymanager
+productName: "DJ Library Manager"
+copyright: "Nicho DJ Tools 2025"
+
+directories:
+  output: "C:\\Users\\User\\Desktop\\APP PERSONALI NICHO\\DJLibrary"
+  buildResources: assets
+
+files:
+  - "**/*"
+  - "!.env"                                            # NON includere le API keys nel build!
+  - "!.env.example"
+  - "!node_modules/ffmpeg-static/bin/linux/**"          # Solo Windows target
+  - "!node_modules/ffmpeg-static/bin/mac/**"
+  - "!**/*.map"
+  - "!**/*.md"
+  - "!**/.git/**"
+  - "!scripts/**"                                      # script di build non servono a runtime
+  - "!plans/**"
+  - "!dist/**"
+
+extraResources:
+  - from: "assets/bin/"    # contiene fpcalc.exe (scaricato manualmente o via script)
+    to: "bin/"
+    filter:
+      - "**/*"
+      - "!README.md"
+      - "!.gitkeep"
+
+asar: true
+asarUnpack:
+  - "node_modules/ffmpeg-static/**"
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: "assets/icon.ico"
+  # Nessun code signing: evita il bisogno di symlink (richiede privilegi admin su Windows)
+  signAndEditExecutable: false
+
+forceCodeSigning: false
+
+portable:
+  artifactName: "DJ_Library_Manager.exe"
+  # NIENTE portableEnvVariable — electron-store usa app.getPath('userData')
+  # che è SEMPRE %APPDATA%/dj-library-manager-config su Windows, indipendentemente
+  # da dove sta l'exe (USB, Desktop, Documenti, ecc.).
