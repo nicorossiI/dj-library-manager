@@ -73,6 +73,7 @@ const api = {
   configSet:    (key, value) => invoke('config:set', key, value),
   testApi:      () => invoke('config:testApi'),     // legacy: ritorna {online,reason,responseTime}
   testApiFull:  () => invoke('config:test-api'),    // spec: ritorna {success,responseTime,error}
+  testShazam:   () => invoke('shazam:test'),        // { ok, message }
 
   // ── Drop zone helper (Electron v32+: File.path rimosso, serve webUtils)
   getPathForFile: (file) => {

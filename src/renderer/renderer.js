@@ -83,6 +83,8 @@ function trackType(t) {
 const SOURCE_LABELS = {
   acrcloud: { label: 'ACRCloud', cls: 'src-acr' },
   acoustid_musicbrainz: { label: 'AcoustID/MB', cls: 'src-mb' },
+  shazam: { label: '🎵 Shazam', cls: 'src-shazam' },
+  shazam_genre: { label: 'Shazam genre', cls: 'src-shazam' },
   discogs: { label: 'Discogs', cls: 'src-discogs' },
   lastfm: { label: 'Last.fm', cls: 'src-lastfm' },
   id3_tags: { label: 'Tag ID3', cls: 'src-id3' },
@@ -1144,6 +1146,21 @@ async function testApiConnection() {
   await refreshApiStatus();
 }
 
+async function testShazamConnection() {
+  const el = $('#set-shazam-state');
+  if (!el) return;
+  el.textContent = '⏳ Verifica...';
+  el.classList.remove('active', 'inactive');
+  const r = await window.api.testShazam?.();
+  if (r?.ok && r.data?.ok) {
+    el.textContent = '🟢 Disponibile';
+    el.classList.add('active');
+  } else {
+    el.textContent = `🔴 ${r?.data?.message || r?.error || 'Non disponibile'}`;
+    el.classList.add('inactive');
+  }
+}
+
 function setupSettingsSliders() {
   const dThr = $('#set-dupe-threshold');
   const dVal = $('#set-dupe-value');
@@ -1312,6 +1329,7 @@ async function init() {
   setupSettingsSliders();
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-test-api').addEventListener('click', testApiConnection);
+  $('#btn-test-shazam')?.addEventListener('click', testShazamConnection);
 
   // IPC events
   setupIpcEvents();

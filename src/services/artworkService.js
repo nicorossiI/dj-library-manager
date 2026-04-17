@@ -109,13 +109,63 @@ async function fetchCoverArt(track) {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// fetchCoverArtFromShazam — scarica dall'URL Shazam CDN (più veloce di CAA)
+// ---------------------------------------------------------------------------
+
+/**
+ * Usa track.coverArtUrl (popolato da shazamService) per scaricare l'immagine
+ * dal CDN Shazam e scriverla nei tag ID3. Salta se il file ha già artwork.
+ * Ritorna true se ha scritto qualcosa.
+ */
+async function fetchCoverArtFromShazam(track) {
+  if (!track?.filePath) return false;
+  if (!track?.coverArtUrl) return false;
+  const ext = path.extname(track.filePath).toLowerCase();
+  if (ext !== '.mp3') return false;
+  if (await hasEmbeddedArtwork(track.filePath)) return false;
+
+  try {
+    const r = await axios.get(track.coverArtUrl, {
+      responseType: 'arraybuffer',
+      timeout: TIMEOUT_MS,
+      validateStatus: s => s >= 200 && s < 300,
+    });
+    const buf = Buffer.from(r.data);
+    if (!buf || buf.length < 500) return false;
+
+    const mime = /\.png(\?|$)/i.test(track.coverArtUrl) ? 'image/png' : 'image/jpeg';
+    const NodeID3 = require('node-id3');
+    const ok = NodeID3.update({
+      image: {
+        mime,
+        type: { id: 3, name: 'front cover' },
+        description: '',
+        imageBuffer: buf,
+      },
+    }, track.filePath);
+    if (ok) {
+      track.artworkFetched = true;
+      track.artworkSource = 'shazam';
+      return true;
+    }
+  } catch { /* fail-soft */ }
+  return false;
+}
+
 async function fetchCoverArtAll(tracks, onProgress) {
   const list = tracks || [];
   let added = 0;
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
     try {
-      const ok = await fetchCoverArt(t);
+      // 1) Shazam CDN diretto (se track.coverArtUrl popolato dal cascata rec)
+      let ok = false;
+      if (t && t.coverArtUrl) {
+        ok = await fetchCoverArtFromShazam(t);
+      }
+      // 2) Fallback MusicBrainz Cover Art Archive (richiede MBID)
+      if (!ok) ok = await fetchCoverArt(t);
       if (ok) added++;
     } catch { /* noop */ }
     if (typeof onProgress === 'function') {
@@ -127,5 +177,6 @@ async function fetchCoverArtAll(tracks, onProgress) {
 
 module.exports = {
   fetchCoverArt,
+  fetchCoverArtFromShazam,
   fetchCoverArtAll,
 };

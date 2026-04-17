@@ -72,6 +72,47 @@ function detectGenreFromPath(filePath) {
 }
 
 // ---------------------------------------------------------------------------
+// Shazam genre mapping — Shazam.track.genres.primary → chiave canonica interna
+// ---------------------------------------------------------------------------
+
+const SHAZAM_GENRE_MAP = Object.freeze({
+  'latin':              'reggaeton',
+  'reggaeton & urban':  'reggaeton',
+  'urban latino':       'reggaeton',
+  'latin urban':        'reggaeton',
+  'trap latino':        'dembow',
+  'dembow':             'dembow',
+  'bachata':            'bachata',
+  'salsa y tropical':   'salsa',
+  'tropical':           'salsa',
+  'salsa':              'salsa',
+  'afrobeats':          'afrohouse',
+  'afro':               'afrohouse',
+  'dance & electronic': 'techhouse',
+  'electronic':         'techhouse',
+  'house':              'house',
+  'deep house':         'deephouse',
+  'tech house':         'techhouse',
+  'techno':             'techno',
+  'hip-hop/rap':        'hiphop',
+  'hip hop':            'hiphop',
+  'rap':                'hiphop',
+  'r&b/soul':           'hiphop',
+  'r&b':                'hiphop',
+});
+
+function mapShazamGenre(raw = '') {
+  if (!raw) return '';
+  const key = String(raw).toLowerCase().trim();
+  if (SHAZAM_GENRE_MAP[key]) return SHAZAM_GENRE_MAP[key];
+  // substring match — "Dance & Electronic / House" ecc.
+  for (const [k, v] of Object.entries(SHAZAM_GENRE_MAP)) {
+    if (key.includes(k)) return v;
+  }
+  return '';
+}
+
+// ---------------------------------------------------------------------------
 // normalizeGenreTag — tag ID3 raw → chiave lowercase canonica
 // ---------------------------------------------------------------------------
 
@@ -218,6 +259,12 @@ async function classify(track) {
 
   // ── 5b) mbGenre (MusicBrainz tags da AcoustID fallback) ──────────
   if (track.mbGenre) return finalize(String(track.mbGenre).toLowerCase(), 0.60, track, 'mbgenre');
+
+  // ── 5c) shazamGenre (se Shazam ha dato un genere mappabile) ──────
+  if (track.shazamGenre) {
+    const mapped = mapShazamGenre(track.shazamGenre);
+    if (mapped) return finalize(mapped, 0.65, track, 'shazam_genre');
+  }
 
   // ── 6) Keyword nel recognizedTitle ───────────────────────────────
   const titleGenre = detectGenreFromText(recognizedTitle);

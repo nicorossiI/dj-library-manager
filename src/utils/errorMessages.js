@@ -31,6 +31,11 @@ const ERROR_MESSAGES = Object.freeze({
     '⏳ Troppe richieste ad AcoustID. Attendi qualche minuto ' +
     'o registra una chiave personale su acoustid.org.',
 
+  // Shazam
+  SHAZAM_UNAVAILABLE:
+    '🎵 Shazam non raggiungibile. Controlla la connessione internet. ' +
+    'L\'app continua con gli altri metodi di riconoscimento.',
+
   // Discogs / Last.fm
   DISCOGS_NO_TOKEN:
     '🔑 Token Discogs non inserito. È opzionale — serve solo per ' +

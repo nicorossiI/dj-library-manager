@@ -15,6 +15,7 @@
     "postinstall": "node scripts/setup.js"
   },
   "dependencies": {
+    "@ffmpeg-installer/win32-x64": "^4.1.0",
     "@fortawesome/fontawesome-free": "^7.2.0",
     "acoustid": "^1.2.1",
     "audio-decode": "^3.9.0",
@@ -36,7 +37,8 @@
     "music-metadata": "^7.14.0",
     "music-tempo": "^1.0.3",
     "musicbrainz-api": "^1.2.0",
-    "node-id3": "^0.2.6"
+    "node-id3": "^0.2.6",
+    "node-shazam": "^1.2.7"
   },
   "devDependencies": {
     "electron": "^31.7.7",

@@ -42,6 +42,7 @@ const { ipcMain, dialog, shell, clipboard, app } = require('electron');
 const metadataService = require('../services/metadataService');
 const fingerprintService = require('../services/fingerprintService');
 const acrcloudService = require('../services/acrcloudService');
+const shazamService = require('../services/shazamService');
 const duplicateService = require('../services/duplicateService');
 const renameService = require('../services/renameService');
 const genreClassifier = require('../services/genreClassifierService');
@@ -847,6 +848,12 @@ function registerIpcHandlers({ store, getMainWindow }) {
   // ─────────────────────────────────────────────────────────────────
   ipcMain.handle('config:test-api', async () => {
     try { return ok(await acrcloudService.testConnection({ seconds: 5 })); }
+    catch (e) { return fail(e); }
+  });
+
+  // Shazam (gratuito, nessuna key): verifica solo che il modulo ESM carichi
+  ipcMain.handle('shazam:test', async () => {
+    try { return ok(await shazamService.testConnection()); }
     catch (e) { return fail(e); }
   });
   // Legacy alias

@@ -283,9 +283,30 @@ async function recognizeSingleTrack(track) {
       }
       return track;
     }
-  } catch { /* MusicBrainz fallito, cadi su parser filename */ }
+  } catch { /* MusicBrainz fallito, cadi su Shazam */ }
 
-  // Fallback 2: parser nome file (ultimo tentativo)
+  // Fallback 2: SHAZAM (gratis, illimitato)
+  // Particolarmente efficace su afrohouse edit, techhouse blend e mashup
+  // dove ACRCloud fallisce perché riconosce le vocals sulla base originale.
+  try {
+    const shazamService = require('./shazamService');
+    const sr = await shazamService.recognizeSingle(track);
+    if (sr && sr.title && sr.artist && sr.confidence >= 70) {
+      track.recognizedTitle = sr.title;
+      track.recognizedArtist = sr.artist;
+      track.recognitionConfidence = sr.confidence;
+      track.recognitionSource = 'shazam';
+      track.shazamKey = sr.shazamKey;
+      track.isRecognized = true;
+      track.status = 'recognized';
+      // Hint per cover art + classificazione genere
+      if (sr.coverArtUrl && !track.coverArtUrl) track.coverArtUrl = sr.coverArtUrl;
+      if (sr.genre && !track.shazamGenre) track.shazamGenre = sr.genre;
+      return track;
+    }
+  } catch { /* Shazam fallito, cadi su parser filename */ }
+
+  // Fallback 3: parser nome file (ultimo tentativo)
   const parsed = parseFileNameForMetadata(fileName);
   if (parsed.artist.length > 2 && parsed.title.length > 2) {
     track.recognizedTitle = parsed.title;
@@ -314,7 +335,13 @@ async function recognizeSingleTrack(track) {
  */
 async function recognizeMixFile(track, onProgress) {
   if (!track || !track.filePath) return track;
-  if (!hasCredentials()) {
+
+  const hasAcr = hasCredentials();
+  let shazamService = null;
+  try { shazamService = require('./shazamService'); } catch { /* noop */ }
+
+  // Se niente ACR e niente Shazam: non possiamo analizzare
+  if (!hasAcr && !shazamService) {
     track.isRecognized = false;
     track.mixSegments = [];
     return track;
@@ -326,24 +353,44 @@ async function recognizeMixFile(track, onProgress) {
   const minConf = CONFIG.recognition.minConfidence;
 
   // --- Campiona l'intero mix ------------------------------------------
+  // Strategia: Shazam PRIMA (gratis/illimitato, robusto su vocals-on-edit).
+  // ACRCloud come fallback solo se Shazam fallisce o confidence bassa.
   const rawMatches = []; // [{ t, match }]
   for (let t = 0; t + sampleDur <= total; t += interval) {
     let match = null;
-    try {
-      const buf = await extractAudioSegment(track.filePath, t, sampleDur);
-      const data = await postAcrRequest(buf);
-      match = pickFirstMatch(data);
-    } catch {
-      // errore singolo campione: continua
-      match = null;
+
+    // 1) Shazam
+    if (shazamService) {
+      try {
+        const sr = await shazamService.recognizeAtOffset(track.filePath, t, sampleDur);
+        if (sr && sr.title && sr.artist && sr.confidence >= 70) {
+          match = {
+            title: sr.title,
+            artist: sr.artist,
+            confidence: sr.confidence,
+            source: 'shazam',
+          };
+        }
+      } catch { /* continua con ACR */ }
     }
+
+    // 2) ACRCloud fallback
+    if (!match && hasAcr) {
+      try {
+        const buf = await extractAudioSegment(track.filePath, t, sampleDur);
+        const data = await postAcrRequest(buf);
+        const acrMatch = pickFirstMatch(data);
+        if (acrMatch && acrMatch.confidence >= minConf) {
+          match = { ...acrMatch, source: 'acrcloud' };
+        }
+      } catch { /* errore singolo campione */ }
+    }
+
     const lastTitle = match?.title || '';
     if (typeof onProgress === 'function') {
       try { onProgress(t, total, lastTitle); } catch { /* noop */ }
     }
-    if (match && match.confidence >= minConf) {
-      rawMatches.push({ t, match });
-    }
+    if (match) rawMatches.push({ t, match });
   }
 
   // --- Deduplicazione contigua ----------------------------------------
