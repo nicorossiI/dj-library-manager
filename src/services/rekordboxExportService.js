@@ -5,7 +5,7 @@
  * Compatibile con Rekordbox 5/6/7.
  *
  * INPUT: organizedTracks (Track[]) con newFilePath + rekordboxPlaylistFolder
- *        + rekordboxPlaylistName già popolati dall'organizerService.
+ *        (= targetFolder piatto) già popolati dall'organizerService.
  *
  * OUTPUT: file <outputRoot>/rekordbox.xml in UTF-8.
  *
@@ -133,7 +133,10 @@ function langLabel(langKey) {
 // senza aprire Rekordbox. Inserisce solo i campi popolati.
 function buildDjlmComment(t) {
   const parts = [];
-  const g = genreLabel(t.detectedGenre);
+  // Priorità: aiGenre (base audio) > detectedGenre > classifiedGenre.
+  // Le cartelle sono decise dalla BASE audio, quindi il commento CDJ/Rekordbox
+  // deve riflettere lo stesso valore per essere coerente.
+  const g = genreLabel(t.aiGenre || t.detectedGenre || t.classifiedGenre);
   if (g) parts.push(g);
   const l = langLabel(t.vocalsLanguage);
   if (l) parts.push(l);
@@ -181,7 +184,7 @@ function trackElement(t, rekordboxId, xmlOutputPath) {
   const comments = [djlmLine, origLine].filter(Boolean).join(' // ');
   const today = todayIso();
   const rating = encodeRating(t.rating);
-  const genreHuman = genreLabel(t.detectedGenre);
+  const genreHuman = genreLabel(t.aiGenre || t.detectedGenre || t.classifiedGenre);
 
   return (
 `    <TRACK

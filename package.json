@@ -1,6 +1,6 @@
 {
   "name": "dj-library-manager",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "DJ Library Manager - organizza la tua libreria musicale (fingerprinting, doppioni, rename, rekordbox)",
   "author": "DJ Library Manager",
   "license": "MIT",
@@ -42,7 +42,8 @@
     "musicbrainz-api": "^1.2.0",
     "node-id3": "^0.2.6",
     "node-shazam": "^1.2.7",
-    "p-queue": "^6.6.2"
+    "p-queue": "^6.6.2",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "electron": "^31.7.7",

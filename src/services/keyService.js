@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 const { decodePcmMono } = require('./bpmService');
 const { toCamelot } = require('../constants/CAMELOT_WHEEL');
 const analysisCache = require('./analysisCache');
@@ -56,33 +56,15 @@ function keyfinderCliAvailable() {
 
 const KEYFINDER_TIMEOUT_MS = 30_000;
 
-function runKeyfinderCli(filePath) {
-  return new Promise((resolve, reject) => {
-    const bin = getKeyfinderCliPath();
-    if (!fs.existsSync(bin)) {
-      return reject(new Error(`keyfinder-cli non trovato: ${bin}`));
-    }
-    const proc = spawn(bin, ['-n', 'camelot', filePath], { windowsHide: true });
-    let stdout = '', stderr = '';
-    let settled = false;
-    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
-
-    const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* noop */ }
-      finish(reject, new Error(`keyfinder-cli timeout (${KEYFINDER_TIMEOUT_MS}ms)`));
-    }, KEYFINDER_TIMEOUT_MS);
-
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
-    proc.on('error', err => { clearTimeout(timer); finish(reject, err); });
-    proc.on('close', code => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        return finish(reject, new Error(`keyfinder-cli exit ${code}: ${stderr.trim() || 'errore sconosciuto'}`));
-      }
-      finish(resolve, stdout.trim());
-    });
+async function runKeyfinderCli(filePath) {
+  const bin = getKeyfinderCliPath();
+  if (!fs.existsSync(bin)) {
+    throw new Error(`keyfinder-cli non trovato: ${bin}`);
+  }
+  const { stdout } = await runProc(bin, ['-n', 'camelot', filePath], {
+    timeout: KEYFINDER_TIMEOUT_MS,
   });
+  return stdout.trim();
 }
 
 // Camelot valido: "1A"..."12A" o "1B"..."12B"

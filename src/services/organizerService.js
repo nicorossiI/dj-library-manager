@@ -87,7 +87,7 @@ function addToTree(tree, rel, track) {
  *   - targetFolder    (relative, "Afro House Vocals Spagnole/Singoli")
  *   - newFilePath     (assoluto: outputRoot + rel + newFileName)
  *   - rekordboxUri    (file://localhost/...)
- *   - rekordboxPlaylistFolder + rekordboxPlaylistName (per successivo export XML)
+ *   - rekordboxPlaylistFolder (per successivo export XML)
  */
 async function previewOrganization(tracks, sourceFolder, opts = {}) {
   const outputRoot = await calculateOutputRoot(sourceFolder, opts.customRoot);
@@ -111,7 +111,6 @@ async function previewOrganization(tracks, sourceFolder, opts = {}) {
 
     // Playlist Rekordbox = cartella piatta (nessuna gerarchia)
     t.rekordboxPlaylistFolder = folderName;
-    t.rekordboxPlaylistName = '';
 
     addToTree(tree, folderName, t);
     foldersSeen.add(folderName);

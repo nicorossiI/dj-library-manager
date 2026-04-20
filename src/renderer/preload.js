@@ -14,6 +14,19 @@ const { contextBridge, ipcRenderer, webUtils, shell } = require('electron');
 
 const invoke = (ch, ...args) => ipcRenderer.invoke(ch, ...args);
 
+// Wrapper deprecazione: chiama il canale nuovo stampando warning in console.
+// Da rimuovere in v1.5.x quando tutti i chiamanti nel renderer sono migrati.
+const _deprecatedOnce = new Set();
+function deprecated(oldCh, newCh, invokeFn) {
+  return (...args) => {
+    if (!_deprecatedOnce.has(oldCh)) {
+      console.warn(`[DEPRECATED] ${oldCh} → usa ${newCh}`);
+      _deprecatedOnce.add(oldCh);
+    }
+    return invokeFn(...args);
+  };
+}
+
 function listener(channel) {
   return (cb) => {
     const fn = (_e, data) => cb(data);
@@ -41,8 +54,9 @@ const api = {
   // ── Tab ANALISI ───────────────────────────────────────────────────
   // Pipeline orchestrata 4 fasi (legge sourceFolder dallo stato del main).
   analysisStart: (sourceFolder) => invoke('analysis:start', sourceFolder),
-  // Backward-compat: vecchio metodo che invia tracks già caricati
-  analyzeFull:   (tracks)  => invoke('library:analyzeFull', tracks),
+  // Legacy: invia tracks già caricati (deprecato, usa analysisStart)
+  analyzeFull:   deprecated('library:analyzeFull', 'analysis:start',
+                  (tracks) => invoke('library:analyzeFull', tracks)),
 
   // ── Tab DOPPIONI ──────────────────────────────────────────────────
   findDuplicates: (tracks) => invoke('library:findDuplicates', tracks),
@@ -57,22 +71,26 @@ const api = {
   // Spec channels (kebab-case)
   organizePreview: (payload) => invoke('organize:preview', payload),
   organizeExecute: (payload) => invoke('organize:execute', payload),
-  // Legacy alias (mantenuti — il renderer attuale li usa)
-  previewOrganization: (payload) => invoke('organize:preview', payload),
-  executeOrganization: (payload) => invoke('organize:execute', payload),
+  // Legacy alias deprecati
+  previewOrganization: deprecated('previewOrganization', 'organizePreview',
+                        (payload) => invoke('organize:preview', payload)),
+  executeOrganization: deprecated('executeOrganization', 'organizeExecute',
+                        (payload) => invoke('organize:execute', payload)),
 
   // ── Tab REKORDBOX ─────────────────────────────────────────────────
   rekordboxPreview:  () => invoke('rekordbox:preview'),
   rekordboxGenerate: () => invoke('rekordbox:generate-xml'),
-  // Legacy (accetta payload con tracks/outputRoot)
-  exportRekordbox:   (payload) => invoke('library:exportRekordbox', payload),
+  // Legacy deprecato (accetta payload con tracks/outputRoot)
+  exportRekordbox:   deprecated('library:exportRekordbox', 'rekordbox:generate-xml',
+                       (payload) => invoke('library:exportRekordbox', payload)),
 
   // ── Settings + API ────────────────────────────────────────────────
   getSettings:  () => invoke('settings:get'),
   setSettings:  (s) => invoke('settings:set', s),
   configGet:    (key) => invoke('config:get', key),
   configSet:    (key, value) => invoke('config:set', key, value),
-  testApi:      () => invoke('config:testApi'),     // legacy: ritorna {online,reason,responseTime}
+  testApi:      deprecated('config:testApi', 'config:test-api',
+                  () => invoke('config:testApi')),  // legacy: ritorna {online,reason,responseTime}
   testApiFull:  () => invoke('config:test-api'),    // spec: ritorna {success,responseTime,error}
   testShazam:   () => invoke('shazam:test'),        // { ok, message }
   testReplicate: (token) => invoke('replicate:test', token || null),

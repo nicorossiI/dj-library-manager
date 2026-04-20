@@ -144,36 +144,6 @@ function resolveFolder(track) {
   return FOLDER_MAP[key] || 'Da Controllare';
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Retro-compat wrappers (per codice legacy che ancora importa
-// resolveTargetFolder / FOLDER_NAMES / FLAT_FOLDERS / SUBFOLDERS).
-// ────────────────────────────────────────────────────────────────────
-
-function resolveTargetFolder(track) {
-  return resolveFolder(track);
-}
-
-// Minimal FOLDER_NAMES shim: tutti i nomi puntano alla nuova cartella piatta.
-const FOLDER_NAMES = Object.freeze({
-  RISCALDAMENTO: 'Riscaldamento',
-  REGGAETON:     'Reggaeton',
-  AFRO_HOUSE:    'Afro House',
-  TECH_HOUSE:    'Tech House',
-  DEEP_HOUSE:    'Deep House',
-  DEMBOW:        'Dembow',
-  BACHATA:       'Bachata e Tropicale',
-  SALSA_TROPICAL:'Bachata e Tropicale',
-  HIP_HOP:       'Hip Hop e Trap',
-  TECHNO:        'Techno',
-  MIX_SET:       'Mix e Set',
-  TO_CHECK:      'Da Controllare',
-  UNCLASSIFIED:  'Da Controllare',
-});
-
-// Tutte flat adesso
-const FLAT_FOLDERS = new Set(ALL_FOLDERS_FLAT);
-const SUBFOLDERS = Object.freeze({ SINGLES: null, MASHUP: null });
-
 module.exports = {
   FOLDER_MAP,
   ALL_FOLDERS_FLAT,
@@ -181,9 +151,4 @@ module.exports = {
   GENRE_LABELS,
   genreLabel,
   resolveFolder,
-  // retro-compat
-  resolveTargetFolder,
-  FOLDER_NAMES,
-  FLAT_FOLDERS,
-  SUBFOLDERS,
 };

@@ -19,7 +19,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 const axios = require('axios');
 const { CONFIG } = require('../constants/CONFIG');
 const { getFpcalcPath } = require('./fingerprintService');
@@ -71,42 +71,21 @@ function getMbApi() {
 // Più robusto del pacchetto `acoustid` npm (che non rispetta ACOUSTID_FPCALC env).
 // ---------------------------------------------------------------------------
 
-function runFpcalcJson(filePath, timeoutMs = 30_000) {
-  return new Promise((resolve, reject) => {
-    const bin = getFpcalcPath();
-    if (!fs.existsSync(bin)) {
-      return reject(new Error(`fpcalc non trovato: ${bin}`));
-    }
-    if (!fs.existsSync(filePath)) {
-      return reject(new Error(`file audio non trovato: ${filePath}`));
-    }
-    const proc = spawn(bin, ['-json', filePath], { windowsHide: true });
-    let stdout = '', stderr = '';
-    let settled = false;
-    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
+async function runFpcalcJson(filePath, timeoutMs = 30_000) {
+  const bin = getFpcalcPath();
+  if (!fs.existsSync(bin)) throw new Error(`fpcalc non trovato: ${bin}`);
+  if (!fs.existsSync(filePath)) throw new Error(`file audio non trovato: ${filePath}`);
 
-    const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* noop */ }
-      finish(reject, new Error(`fpcalc timeout (${timeoutMs}ms)`));
-    }, timeoutMs);
-
-    proc.stdout.on('data', c => { stdout += c.toString(); });
-    proc.stderr.on('data', c => { stderr += c.toString(); });
-    proc.on('error', e => { clearTimeout(timer); finish(reject, e); });
-    proc.on('close', code => {
-      clearTimeout(timer);
-      if (code !== 0) return finish(reject, new Error(`fpcalc exit ${code}: ${stderr.slice(0, 200)}`));
-      try {
-        const j = JSON.parse(stdout);
-        if (!j.fingerprint || !j.duration) {
-          return finish(reject, new Error('fpcalc output incompleto'));
-        }
-        finish(resolve, { fingerprint: String(j.fingerprint), duration: Math.round(Number(j.duration)) });
-      } catch (e) {
-        finish(reject, new Error(`fpcalc JSON parse: ${e.message}`));
-      }
-    });
-  });
+  const { stdout } = await runProc(bin, ['-json', filePath], { timeout: timeoutMs });
+  try {
+    const j = JSON.parse(stdout);
+    if (!j.fingerprint || !j.duration) {
+      throw new Error('fpcalc output incompleto');
+    }
+    return { fingerprint: String(j.fingerprint), duration: Math.round(Number(j.duration)) };
+  } catch (e) {
+    throw new Error(`fpcalc JSON parse: ${e.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

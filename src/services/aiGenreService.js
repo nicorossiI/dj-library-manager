@@ -25,7 +25,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
+const { runProc } = require('../utils/runProc');
 
 let _axios = null;
 function getAxios() {
@@ -135,38 +136,28 @@ async function tryLocalClassification(track, opts = {}) {
   if (!isLocalAvailable()) return null;
   if (!track?.filePath || !fs.existsSync(track.filePath)) return null;
 
-  return await new Promise((resolve) => {
-    const proc = spawn(_pythonCmd.cmd, [_pythonCmd.ver, PY_SCRIPT, track.filePath], {
-      shell: false,
-      windowsHide: true,
-    });
-    let stdout = '';
-    let stderr = '';
-    const to = setTimeout(() => { try { proc.kill(); } catch { /* noop */ } }, timeoutMs);
-
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
-    proc.on('error', () => { clearTimeout(to); resolve(null); });
-    proc.on('close', (code) => {
-      clearTimeout(to);
-      if (code !== 0 && !stdout) {
-        if (stderr) console.warn('[AI Genre local] stderr:', stderr.slice(-300));
-        return resolve(null);
-      }
-      try {
-        const result = JSON.parse(stdout.trim().split('\n').pop());
-        if (!result.ok || !result.genre_mapped) return resolve(null);
-        return resolve({
-          genre: result.genre_mapped,
-          confidence: result.confidence,
-          top: (result.top || []).map(t => `${t.label} (${Math.round(t.score * 100)}%)`),
-          source: 'ai_local',
-        });
-      } catch {
-        return resolve(null);
-      }
-    });
-  });
+  try {
+    const { stdout, stderr } = await runProc(
+      _pythonCmd.cmd,
+      [_pythonCmd.ver, PY_SCRIPT, track.filePath],
+      { timeout: timeoutMs, spawnOptions: { shell: false } },
+    );
+    if (!stdout) {
+      if (stderr) console.warn('[AI Genre local] stderr:', stderr.slice(-300));
+      return null;
+    }
+    const result = JSON.parse(stdout.trim().split('\n').pop());
+    if (!result.ok || !result.genre_mapped) return null;
+    return {
+      genre: result.genre_mapped,
+      confidence: result.confidence,
+      top: (result.top || []).map(t => `${t.label} (${Math.round(t.score * 100)}%)`),
+      source: 'ai_local',
+    };
+  } catch (err) {
+    console.warn('[AI Genre local]', err.message);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ const fsp = fs.promises;
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 const axios = require('axios');
 const FormData = require('form-data');
 
@@ -538,39 +538,29 @@ async function identifyMixSegments(filePath, {
  * Genera un buffer MP3 contenente N secondi di silenzio puro via ffmpeg-static.
  * Usato per il test della connessione ACRCloud (no payload reale).
  */
-function generateSilenceBuffer(seconds = 5) {
-  return new Promise((resolve, reject) => {
-    let ffmpegStatic;
-    try {
-      ffmpegStatic = require('ffmpeg-static');
-    } catch (err) {
-      return reject(new Error('ffmpeg-static non disponibile: ' + err.message));
-    }
-    // Path-fix per ASAR packaging
-    const ffmpegBin = (typeof ffmpegStatic === 'string' && ffmpegStatic.includes('app.asar'))
-      ? ffmpegStatic.replace('app.asar', 'app.asar.unpacked')
-      : ffmpegStatic;
-    if (!ffmpegBin) return reject(new Error('ffmpeg binary path non risolto'));
+async function generateSilenceBuffer(seconds = 5) {
+  let ffmpegStatic;
+  try {
+    ffmpegStatic = require('ffmpeg-static');
+  } catch (err) {
+    throw new Error('ffmpeg-static non disponibile: ' + err.message);
+  }
+  const ffmpegBin = (typeof ffmpegStatic === 'string' && ffmpegStatic.includes('app.asar'))
+    ? ffmpegStatic.replace('app.asar', 'app.asar.unpacked')
+    : ffmpegStatic;
+  if (!ffmpegBin) throw new Error('ffmpeg binary path non risolto');
 
-    const args = [
-      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-      '-t', String(seconds),
-      '-acodec', 'libmp3lame', '-b:a', '128k',
-      '-f', 'mp3', 'pipe:1',
-    ];
-    const proc = spawn(ffmpegBin, args, { windowsHide: true });
-    const chunks = [];
-    let stderr = '';
-    proc.stdout.on('data', c => chunks.push(c));
-    proc.stderr.on('data', c => { stderr += c.toString(); });
-    proc.on('error', reject);
-    proc.on('close', code => {
-      if (code !== 0) return reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(0, 200)}`));
-      const buf = Buffer.concat(chunks);
-      if (buf.length === 0) return reject(new Error('ffmpeg ha prodotto buffer vuoto'));
-      resolve(buf);
-    });
-  });
+  const args = [
+    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+    '-t', String(seconds),
+    '-acodec', 'libmp3lame', '-b:a', '128k',
+    '-f', 'mp3', 'pipe:1',
+  ];
+  const { stdoutBuffer } = await runProc(ffmpegBin, args, { timeout: 15_000 });
+  if (!stdoutBuffer || stdoutBuffer.length === 0) {
+    throw new Error('ffmpeg ha prodotto buffer vuoto');
+  }
+  return stdoutBuffer;
 }
 
 /**

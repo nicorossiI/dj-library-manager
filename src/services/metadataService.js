@@ -250,7 +250,9 @@ async function writeAnalysisTags(track) {
     update.initialKey = String(track.key); // Camelot "8B" o standard
   }
 
-  // Lingua + tipo → Comment + Grouping (Rekordbox li mostra come campi filtrabili)
+  // Lingua + tipo → Comment + Grouping (Rekordbox li mostra come campi filtrabili).
+  // Il Comment viene scritto SOLO se è vuoto o se è già un nostro tag precedente,
+  // per evitare di cancellare note personali dell'utente.
   try {
     const langKey = normalizeLangKey(track.vocalsLanguage || track.detectedLanguage);
     const langLabel = LANG_LABELS[langKey] || 'Misto';
@@ -263,11 +265,24 @@ async function writeAnalysisTags(track) {
       const gLabel = GENRE_LABELS[genreKey];
       typeLabel = gLabel ? `${gLabel} Edit` : 'Mashup';
     }
-    update.comment = {
-      language: 'ita',
-      text: `${langLabel} | ${typeLabel}`,
-    };
-    // Grouping (TIT1) letto da Rekordbox come campo custom
+
+    // Leggi eventuale comment già presente per decidere se sovrascrivere.
+    const NodeID3 = require('node-id3');
+    const existingTags = NodeID3.read(track.filePath) || {};
+    const existingComment = existingTags?.comment?.text || '';
+    const KNOWN_LABELS = ['Spagnolo', 'Italiano', 'Italiano-Spagnolo',
+                          'Inglese', 'Misto', 'Strumentale'];
+    const isOurTag = existingComment.includes(' | ')
+      && KNOWN_LABELS.some(l => existingComment.startsWith(l));
+
+    if (!existingComment || isOurTag) {
+      update.comment = {
+        language: 'ita',
+        text: `${langLabel} | ${typeLabel}`,
+      };
+    }
+    // Grouping (TIT1) letto da Rekordbox come campo custom — lo scriviamo sempre
+    // perché è un campo dedicato, non un free-form come Comment.
     update.grouping = langLabel;
   } catch { /* noop */ }
 
@@ -275,8 +290,8 @@ async function writeAnalysisTags(track) {
 
   try {
     const NodeID3 = require('node-id3');
-    const ok = NodeID3.update(update, track.filePath);
-    return { ok: !!ok };
+    const okRes = NodeID3.update(update, track.filePath);
+    return { ok: !!okRes };
   } catch (err) {
     return { ok: false, error: err.message };
   }

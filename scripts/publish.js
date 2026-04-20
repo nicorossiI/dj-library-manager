@@ -22,14 +22,15 @@ const path = require('path');
 const readline = require('readline');
 const { execSync, spawnSync } = require('child_process');
 const https = require('https');
-const yaml = require('js-yaml');
 
 require('dotenv').config();
 
 const ROOT = path.join(__dirname, '..');
 const PKG_PATH = path.join(ROOT, 'package.json');
-const BUILDER_YML = path.join(ROOT, 'electron-builder.yml');
+const DIST_DIR = path.join(ROOT, 'dist');
 const EXE_NAME = 'DJ_Library_Manager.exe';
+const EXE_PATH = path.join(DIST_DIR, EXE_NAME);
+const YML_PATH = path.join(DIST_DIR, 'latest.yml');
 const REPO_OWNER = 'nicorossiI';
 const REPO_NAME = 'dj-library-manager';
 
@@ -59,11 +60,6 @@ function bumpVersion(current, kind) {
 function sh(cmd, opts = {}) {
   log('→', cmd);
   execSync(cmd, { cwd: ROOT, stdio: 'inherit', ...opts });
-}
-
-function readOutputDir() {
-  const cfg = yaml.load(fs.readFileSync(BUILDER_YML, 'utf8'));
-  return cfg?.directories?.output || path.join(ROOT, 'dist');
 }
 
 // ---------------------------------------------------------------------------
@@ -224,14 +220,11 @@ async function main() {
   log('🔨', 'npm run build:portable');
   sh('npm run build:portable');
 
-  const outputDir = readOutputDir();
-  const exePath = path.join(outputDir, EXE_NAME);
-  const ymlPath = path.join(outputDir, 'latest.yml');
-  if (!fs.existsSync(exePath)) fail(`.exe non trovato: ${exePath}`);
-  if (!fs.existsSync(ymlPath)) fail(`latest.yml non trovato: ${ymlPath}`);
-  log('✅', `Build: ${exePath}`);
+  if (!fs.existsSync(EXE_PATH)) fail(`.exe non trovato: ${EXE_PATH}`);
+  if (!fs.existsSync(YML_PATH)) fail(`latest.yml non trovato: ${YML_PATH}`);
+  log('✅', `Build: ${EXE_PATH}`);
 
-  // 5) Git add + commit + push
+  // 5) Git add + commit + push (con rollback se il push fallisce)
   console.log('');
   sh('git add .');
   const commitResult = spawnSync('git', ['commit', '-m', commitMsg], {
@@ -239,8 +232,17 @@ async function main() {
   });
   if (commitResult.status !== 0) fail('git commit fallito.');
   sh(`git tag ${tag}`);
-  sh('git push origin main');
-  sh(`git push origin ${tag}`);
+
+  try {
+    sh('git push origin main');
+    sh(`git push origin ${tag}`);
+  } catch (pushErr) {
+    console.error('\n❌  Push fallito — rollback commit, tag e version bump locali...');
+    try { execSync(`git reset --soft HEAD~1`, { cwd: ROOT, stdio: 'inherit' }); } catch { /* noop */ }
+    try { execSync(`git tag -d ${tag}`, { cwd: ROOT, stdio: 'inherit' }); } catch { /* noop */ }
+    try { execSync(`git checkout -- package.json`, { cwd: ROOT, stdio: 'inherit' }); } catch { /* noop */ }
+    fail(`Push fallito: ${pushErr.message}`);
+  }
 
   // 6) GitHub Release + upload asset
   console.log('');
@@ -252,9 +254,9 @@ async function main() {
   });
   log('✅', `Release creata: ${release.html_url}`);
 
-  await uploadAsset(token, release.id, exePath);
+  await uploadAsset(token, release.id, EXE_PATH);
   log('✅', `${EXE_NAME} caricato`);
-  await uploadAsset(token, release.id, ymlPath);
+  await uploadAsset(token, release.id, YML_PATH);
   log('✅', 'latest.yml caricato');
 
   console.log('');

@@ -10,7 +10,7 @@ productName: "DJ Library Manager"
 copyright: "Nicho DJ Tools 2025"
 
 directories:
-  output: "C:\\Users\\User\\Desktop\\APP PERSONALI NICHO\\DJLibrary"
+  output: "dist"
   buildResources: assets
 
 files:

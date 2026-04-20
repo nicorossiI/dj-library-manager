@@ -78,7 +78,6 @@ class Track {
     this.vocalsLanguage = data.vocalsLanguage || 'instrumental';
     this.targetFolder = data.targetFolder || '';
     this.rekordboxPlaylistFolder = data.rekordboxPlaylistFolder || '';
-    this.rekordboxPlaylistName = data.rekordboxPlaylistName || '';
 
     // ── Output post-organizzazione ─────────────────────────────────────
     this.newFileName = data.newFileName || '';

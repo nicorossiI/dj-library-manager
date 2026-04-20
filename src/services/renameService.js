@@ -71,18 +71,23 @@ function hasUsableLocalTags(track) {
   return !!(t && a);
 }
 
+// Cap input regex: nomi file con >500 char o molte parentesi annidate
+// possono causare catastrophic backtracking bloccando il thread UI.
+const MAX_REGEX_INPUT = 500;
+
 /**
  * Estrae il "tipo di edit" dalla stringa originale (parens contenenti
  * keyword tipiche). Ritorna la stringa interna alla parentesi (es.
  * "Afrohouse Edit", "Tech House Blend") oppure '' se non trovato.
  */
 function extractEditType(title = '') {
-  if (!title) return '';
+  const safeTitle = String(title || '').slice(0, MAX_REGEX_INPUT);
+  if (!safeTitle) return '';
   const kw = /(mashup|edit|bootleg|blend|version|remix|extended|tribal|afrohouse|tech\s*house|instrumental|acapella|acappella|transition)/i;
   const patterns = [/\(([^)]+)\)/g, /\[([^\]]+)\]/g];
   for (const re of patterns) {
     let m;
-    while ((m = re.exec(title)) !== null) {
+    while ((m = re.exec(safeTitle)) !== null) {
       const inner = m[1].trim();
       if (kw.test(inner)) return inner;
     }
@@ -90,12 +95,16 @@ function extractEditType(title = '') {
   return '';
 }
 
+// Regex di strip pre-compilate: niente new RegExp() per ogni chiamata.
+const _STRIP_PARENS = /\s*\([^)]*(?:mashup|edit|bootleg|blend|version|remix|extended|tribal|afrohouse|tech\s*house|instrumental|acapella|acappella|transition)[^)]*\)/gi;
+const _STRIP_BRACKETS = /\s*\[[^\]]*(?:mashup|edit|bootleg|blend|version|remix|extended|tribal|afrohouse|tech\s*house|instrumental|acapella|acappella|transition)[^\]]*\]/gi;
+
 /** Rimuove dal titolo i marker di edit (già preservati separatamente). */
 function stripEditAnnotations(title = '') {
-  const kwGroup = '(?:mashup|edit|bootleg|blend|version|remix|extended|tribal|afrohouse|tech\\s*house|instrumental|acapella|acappella|transition)';
-  return String(title)
-    .replace(new RegExp(`\\s*\\([^)]*${kwGroup}[^)]*\\)`, 'gi'), '')
-    .replace(new RegExp(`\\s*\\[[^\\]]*${kwGroup}[^\\]]*\\]`, 'gi'), '')
+  const safeTitle = String(title || '').slice(0, MAX_REGEX_INPUT);
+  return safeTitle
+    .replace(_STRIP_PARENS, '')
+    .replace(_STRIP_BRACKETS, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

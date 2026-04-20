@@ -32,7 +32,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 
 const { CONFIG } = require('../constants/CONFIG');
 const { extractSegment } = require('./ffmpegService');
@@ -69,49 +69,29 @@ const DEFAULT_LENGTH_SEC = CONFIG.mix?.fingerprintSeconds || 120;
 
 const FPCALC_TIMEOUT_MS = 30_000;
 
-function runFpcalc(filePath, { length = DEFAULT_LENGTH_SEC, timeoutMs = FPCALC_TIMEOUT_MS } = {}) {
-  return new Promise((resolve, reject) => {
-    const bin = getFpcalcPath();
-    if (!fs.existsSync(bin)) {
-      return reject(new Error(
-        `fpcalc non trovato: ${bin}\n` +
-        'Scarica Chromaprint 1.5.x da https://acoustid.org/chromaprint ' +
-        'e metti fpcalc.exe in assets/bin/'
-      ));
-    }
-    const args = ['-json'];
-    if (length > 0) args.push('-length', String(length));
-    args.push(filePath);
+async function runFpcalc(filePath, { length = DEFAULT_LENGTH_SEC, timeoutMs = FPCALC_TIMEOUT_MS } = {}) {
+  const bin = getFpcalcPath();
+  if (!fs.existsSync(bin)) {
+    throw new Error(
+      `fpcalc non trovato: ${bin}\n` +
+      'Scarica Chromaprint 1.5.x da https://acoustid.org/chromaprint ' +
+      'e metti fpcalc.exe in assets/bin/'
+    );
+  }
+  const args = ['-json'];
+  if (length > 0) args.push('-length', String(length));
+  args.push(filePath);
 
-    const proc = spawn(bin, args, { windowsHide: true });
-    let stdout = '', stderr = '';
-    let settled = false;
-    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
-
-    const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* noop */ }
-      finish(reject, new Error(`fpcalc timeout dopo ${timeoutMs}ms su ${path.basename(filePath)}`));
-    }, timeoutMs);
-
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
-    proc.on('error', err => { clearTimeout(timer); finish(reject, err); });
-    proc.on('close', code => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        return finish(reject, new Error(`fpcalc exit ${code}: ${stderr.trim() || 'unknown error'}`));
-      }
-      try {
-        const json = JSON.parse(stdout);
-        finish(resolve, {
-          duration: Number(json.duration) || 0,
-          fingerprint: String(json.fingerprint || ''),
-        });
-      } catch (e) {
-        finish(reject, new Error(`fpcalc output non parsabile: ${e.message}`));
-      }
-    });
-  });
+  const { stdout } = await runProc(bin, args, { timeout: timeoutMs });
+  try {
+    const json = JSON.parse(stdout);
+    return {
+      duration: Number(json.duration) || 0,
+      fingerprint: String(json.fingerprint || ''),
+    };
+  } catch (e) {
+    throw new Error(`fpcalc output non parsabile: ${e.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

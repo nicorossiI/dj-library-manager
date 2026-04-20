@@ -11,7 +11,7 @@
 
 'use strict';
 
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 const analysisCache = require('./analysisCache');
 
 // ffmpeg-static path, gestione asar.unpacked per packaging
@@ -40,39 +40,30 @@ function getMusicTempo() {
 // decodePcmMono — ffmpeg → Float32Array PCM mono 44100 Hz
 // ─────────────────────────────────────────────────────────────────────
 
-function decodePcmMono(filePath, { sampleRate = 44100, maxSeconds = 120 } = {}) {
-  return new Promise((resolve, reject) => {
-    const bin = getFfmpegPath();
-    if (!bin) return reject(new Error('ffmpeg-static path non risolto'));
+async function decodePcmMono(filePath, { sampleRate = 44100, maxSeconds = 120 } = {}) {
+  const bin = getFfmpegPath();
+  if (!bin) throw new Error('ffmpeg-static path non risolto');
 
-    // Limitiamo la durata analizzata a maxSeconds per velocità (BPM stabile dopo ~60s)
-    const args = [
-      '-hide_banner', '-loglevel', 'error',
-      '-i', filePath,
-      '-t', String(maxSeconds),
-      '-f', 'f32le', '-acodec', 'pcm_f32le',
-      '-ar', String(sampleRate),
-      '-ac', '1',
-      'pipe:1',
-    ];
+  // Limitiamo la durata analizzata a maxSeconds per velocità (BPM stabile dopo ~60s).
+  // Timeout = maxSeconds × 2 + 10s (decodifica ≈ realtime + margine, mai < 30s).
+  const args = [
+    '-hide_banner', '-loglevel', 'error',
+    '-i', filePath,
+    '-t', String(maxSeconds),
+    '-f', 'f32le', '-acodec', 'pcm_f32le',
+    '-ar', String(sampleRate),
+    '-ac', '1',
+    'pipe:1',
+  ];
 
-    const proc = spawn(bin, args, { windowsHide: true });
-    const chunks = [];
-    let stderr = '';
-    proc.stdout.on('data', (c) => chunks.push(c));
-    proc.stderr.on('data', (c) => { stderr += c.toString(); });
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        return reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(0, 200)}`));
-      }
-      const buf = Buffer.concat(chunks);
-      // Float32Array shares buffer ma serve allineamento corretto
-      const f32 = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4));
-      // Copia per evitare problemi di lifetime del Buffer Node
-      resolve(new Float32Array(f32));
-    });
-  });
+  const timeout = Math.max(30_000, maxSeconds * 2000 + 10_000);
+  const { stdoutBuffer } = await runProc(bin, args, { timeout });
+  const f32 = new Float32Array(
+    stdoutBuffer.buffer,
+    stdoutBuffer.byteOffset,
+    Math.floor(stdoutBuffer.byteLength / 4),
+  );
+  return new Float32Array(f32);
 }
 
 // ─────────────────────────────────────────────────────────────────────

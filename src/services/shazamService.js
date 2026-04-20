@@ -23,7 +23,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 
 // ---------------------------------------------------------------------------
 // Singleton + rate limit
@@ -157,26 +157,17 @@ async function recognizeAtOffset(filePath, offsetSeconds, durationSeconds = 12) 
   );
 
   try {
-    // Estrai segmento WAV 44.1kHz mono (Shazam preferisce sample rate standard)
-    await new Promise((resolve, reject) => {
-      const proc = spawn(ffmpegPath, [
-        '-ss', String(Math.max(0, offsetSeconds)),
-        '-t', String(durationSeconds),
-        '-i', filePath,
-        '-ar', '44100',
-        '-ac', '1',
-        '-f', 'wav',
-        '-y', tmpFile,
-      ], { windowsHide: true });
-
-      let stderr = '';
-      proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-200)}`));
-      });
-      proc.on('error', reject);
-    });
+    // Estrai segmento WAV 44.1kHz mono (Shazam preferisce sample rate standard).
+    // tmpFile passato a runProc che lo cancella SEMPRE anche su timeout/error.
+    await runProc(ffmpegPath, [
+      '-ss', String(Math.max(0, offsetSeconds)),
+      '-t', String(durationSeconds),
+      '-i', filePath,
+      '-ar', '44100',
+      '-ac', '1',
+      '-f', 'wav',
+      '-y', tmpFile,
+    ], { timeout: 60_000 });
 
     if (!fs.existsSync(tmpFile)) return null;
 

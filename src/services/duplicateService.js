@@ -18,7 +18,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
+const { runProc } = require('../utils/runProc');
 
 const {
   normalizeSongTitle, normalizeArtistName, calculateSimilarity,
@@ -304,32 +304,26 @@ async function verifyWithChromaprint(appearances) {
       const tmpWav = path.join(os.tmpdir(), `djlm_cmp_${Date.now()}_${i}_${process.pid}.wav`);
       tmpFiles.push(tmpWav);
 
-      await new Promise((resolve, reject) => {
-        const proc = spawn(ffmpegPath, [
-          '-ss', String(startTime),
-          '-t', '30',
-          '-i', mixTrack.filePath,
-          '-ar', '11025',
-          '-ac', '1',
-          '-f', 'wav',
-          '-y', tmpWav,
-        ], { windowsHide: true });
-        proc.on('close', c => c === 0 ? resolve() : reject(new Error(`ffmpeg exit ${c}`)));
-        proc.on('error', reject);
-      });
+      // Estrai segmento 30s come WAV mono 11025Hz (sufficiente per Chromaprint).
+      // tmpWav verrà cancellato dal `finally` esterno, NON qui: fpcalc deve
+      // poterlo leggere subito dopo.
+      await runProc(ffmpegPath, [
+        '-ss', String(startTime),
+        '-t', '30',
+        '-i', mixTrack.filePath,
+        '-ar', '11025',
+        '-ac', '1',
+        '-f', 'wav',
+        '-y', tmpWav,
+      ], { timeout: 45_000 });
 
-      const fp = await new Promise((resolve, reject) => {
-        const proc = spawn(fpcalcPath, ['-raw', '-length', '30', tmpWav], { windowsHide: true });
-        let out = '';
-        proc.stdout.on('data', d => { out += d.toString(); });
-        proc.on('close', () => {
-          const m = out.match(/FINGERPRINT=([\-\d,]+)/);
-          if (m) resolve(m[1].split(',').map(Number));
-          else reject(new Error('no fingerprint'));
-        });
-        proc.on('error', reject);
-      });
-      fingerprints.push(fp);
+      const { stdout: fpOut } = await runProc(
+        fpcalcPath, ['-raw', '-length', '30', tmpWav],
+        { timeout: 30_000 },
+      );
+      const m = fpOut.match(/FINGERPRINT=([\-\d,]+)/);
+      if (!m) throw new Error('no fingerprint');
+      fingerprints.push(m[1].split(',').map(Number));
     }
 
     if (fingerprints.length < 2) return null;
