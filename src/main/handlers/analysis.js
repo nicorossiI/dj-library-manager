@@ -84,7 +84,9 @@ function register(ctx) {
       analysisQueue.setConcurrency(c);
     } catch { /* noop */ }
 
-    analysisQueue.clear();
+    // clear() ora è async e aspetta onIdle se ci sono task in-flight
+    // prima di resettare i contatori (no progress callback zombie).
+    await analysisQueue.clear();
     analysisQueue.setProgressCallback(({ completed, total, pending }) => {
       send('analysis:queue-progress', { completed, total, pending });
     });

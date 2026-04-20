@@ -61,7 +61,10 @@ const api = {
   // ── Tab DOPPIONI ──────────────────────────────────────────────────
   findDuplicates: (tracks) => invoke('library:findDuplicates', tracks),
   findCrossMixDuplicates: (tracks) => invoke('duplicates:cross-mix', tracks),
-  autoDeleteDuplicates: (paths) => invoke('duplicates:auto-delete', paths || null),
+  autoDeleteDuplicates: (payload) => invoke('duplicates:auto-delete', payload || null),
+  getTrashLog:        () => invoke('duplicates:get-trash-log'),
+  undoLastTrash:      () => invoke('duplicates:undo-last'),
+  clearTrashLog:      () => invoke('duplicates:clear-trash-log'),
 
   // ── Tab RINOMINA ──────────────────────────────────────────────────
   previewRename:  (tracks) => invoke('library:rename', { tracks }),
@@ -106,6 +109,7 @@ const api = {
   openFolder: (path) => invoke('shell:open-folder', path),
   openFile:   (path) => invoke('shell:open-file', path),
   copyText:   (text) => invoke('shell:copy-text', text),
+  getDiskInfo:(path) => invoke('disk:info', path),
   openExternal: (url) => { try { shell.openExternal(url); } catch { /* noop */ } },
 
   // ── Eventi push da main ───────────────────────────────────────────
@@ -116,6 +120,7 @@ const api = {
   onCrossMixDuplicates: listener('analysis:cross-mix-duplicates'),
   onOrganizeProgress:   listener('organize:progress'),
   onOrganizeComplete:   listener('organize:complete'),
+  onRekordboxProgress:  listener('rekordbox:progress'),
   onRekordboxComplete:  listener('rekordbox:xml-complete'),
   onUpdateProgress:     listener('library:update-progress'),
   onWatcherProcessed:   listener('watcher:file-processed'),

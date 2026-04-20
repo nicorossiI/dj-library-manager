@@ -12,6 +12,8 @@ const fs = require('fs');
 const fsp = fs.promises;
 const { dialog, shell, clipboard } = require('electron');
 
+const { getDiskInfo } = require('../../utils/diskInfo');
+
 function register(ctx) {
   const { ipcMain, store, getMainWindow, appState, ok, fail, validateOutputPath, emitLog } = ctx;
 
@@ -87,6 +89,15 @@ function register(ctx) {
   });
   ipcMain.handle('shell:copy-text', async (_e, text) => {
     try { clipboard.writeText(String(text || '')); return ok(true); } catch (e) { return fail(e); }
+  });
+
+  // Info drive per un path: spazio libero/totale + isRemovable (USB?).
+  // Usato dall'UI organize per mostrare warning pendrive + check spazio.
+  ipcMain.handle('disk:info', async (_e, p) => {
+    try {
+      if (!p) return fail(new Error('path mancante'));
+      return ok(await getDiskInfo(p));
+    } catch (e) { return fail(e); }
   });
 
   // camelCase legacy (usati ancora dal preload attuale)

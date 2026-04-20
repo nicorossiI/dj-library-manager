@@ -110,6 +110,21 @@ const CONFIG = Object.freeze({
   // ── Duplicati (matching testuale Levenshtein) ─────────────────────────
   DUPLICATE_THRESHOLD: 0.88,
 
+  // ── Duplicati: policy sicurezza auto-delete ──────────────────────────
+  // Principio: text match (nome/artista) da solo NON giustifica un'eliminazione
+  // automatica. Solo `acoustic_exact` con score ≥ autoDeleteMinScore passa
+  // direttamente al Cestino. Tutto il resto richiede revisione manuale.
+  duplicates: Object.freeze({
+    autoDeleteMinScore: 0.95,    // min score per auto-delete (acoustic_exact)
+    acousticMatchScore: 0.88,    // min score per bucket "acoustic_similar"
+    textMatchEnabled: true,      // se false, la fase testuale non produce gruppi
+    batchSizeCap: 500,           // max file per singola chiamata auto-delete
+    requireConfirmAlways: true,  // mostra sempre il modal di conferma
+    fingerprintPrefixes: [16, 24, 32], // bucket multi-prefisso per fingerprint
+    fuseTextThreshold: 0.2,      // soglia fuse.js — basso = match più stretto
+    trashLogMax: 500,            // quanti eliminati tenere nello storico
+  }),
+
   // ── Rename templates ──────────────────────────────────────────────────
   RENAME_FORMAT: '{artist} - {title} [{key}][{bpm}]',
   RENAME_FORMAT_MASHUP: '{artists} - {titles} (Mashup) [{bpm}]',

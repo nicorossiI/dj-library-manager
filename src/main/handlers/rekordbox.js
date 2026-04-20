@@ -39,7 +39,20 @@ function register(ctx) {
       if (!useOrganized) {
         emitLog('warn', '⚠️', 'rekordbox.xml generato da loadedTracks (path non organizzati). Esegui prima organize:execute.');
       }
-      const xmlPath = await rekordboxExportService.generateRekordboxXml(tracks, appState.outputRoot);
+      const xmlPath = await rekordboxExportService.generateRekordboxXml(
+        tracks, appState.outputRoot,
+        (done, total, phase) => {
+          send('rekordbox:progress', { done, total, phase });
+          send('library:progress', {
+            done, total, phase: 'rekordbox',
+            label: phase === 'collection' ? `Generazione XML ${done}/${total}`
+                 : phase === 'playlists'  ? 'Costruzione playlist...'
+                 : phase === 'validating' ? 'Validazione XML...'
+                 : phase === 'writing'    ? 'Salvataggio file...'
+                 : '',
+          });
+        },
+      );
       appState.rekordboxXmlPath = xmlPath;
       const payload = { xmlPath, stats: { entries: tracks.length } };
       send('rekordbox:xml-complete', payload);
@@ -54,7 +67,12 @@ function register(ctx) {
         : (appState.organizedTracks.length ? appState.organizedTracks : appState.loadedTracks);
       const root = outputRoot || appState.outputRoot;
       if (!root) throw new Error('outputRoot mancante');
-      const xmlPath = await rekordboxExportService.generateRekordboxXml(t, root);
+      const xmlPath = await rekordboxExportService.generateRekordboxXml(
+        t, root,
+        (done, total, phase) => send('library:progress', {
+          done, total, phase: 'rekordbox', label: phase,
+        }),
+      );
       appState.rekordboxXmlPath = xmlPath;
       return ok({ xmlPath, entries: t.length });
     } catch (e) { return fail(e); }

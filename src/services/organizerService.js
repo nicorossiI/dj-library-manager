@@ -26,7 +26,7 @@ const fsp = fs.promises;
 
 const { CONFIG } = require('../constants/CONFIG');
 const { resolveFolder } = require('../constants/FOLDER_STRUCTURE');
-const { ensureDir, uniquePath } = require('../utils/fileUtils');
+const { ensureDir, safeCopy } = require('../utils/fileUtils');
 const { pathToRekordboxUri } = require('../utils/stringUtils');
 const OrganizeResult = require('../models/OrganizeResult');
 
@@ -161,9 +161,10 @@ async function executeOrganization(tracks, sourceFolder, onProgress, opts = {}) 
       if (!t.filePath) throw new Error('filePath mancante');
       if (!t.newFilePath) throw new Error('newFilePath non calcolato');
 
-      // 3) Collisione → (2), (3), ...
-      const finalPath = await uniquePath(t.newFilePath);
-      await fsp.copyFile(t.filePath, finalPath);
+      // 3) Copia atomica: safeCopy usa COPYFILE_EXCL che fallisce con EEXIST
+      //    se il dest esiste, poi retry automatico con counter " (1)", " (2)", …
+      //    Nessuna race fra check-existence e write.
+      const finalPath = await safeCopy(t.filePath, t.newFilePath);
 
       // 4) Aggiorna Track con path finale
       t.newFilePath = finalPath;
@@ -199,6 +200,15 @@ async function executeOrganization(tracks, sourceFolder, onProgress, opts = {}) 
 // Retro-compat: organize() + buildRekordboxXml (usati ancora da ipcHandlers)
 // ---------------------------------------------------------------------------
 
+/**
+ * One-shot legacy: organizza + scrive rekordbox.xml.
+ * Delega a executeOrganization + rekordboxExportService.generateRekordboxXml
+ * (il nuovo generatore, con playlist popolate nell'ordine serata).
+ *
+ * Prima chiamava un `buildRekordboxXml` locale che produceva un XML con
+ * `<PLAYLISTS><NODE Name="ROOT" Count="0"/></PLAYLISTS>` vuoto: le tracce
+ * finivano in COLLECTION ma nessuna playlist, inutile in Rekordbox.
+ */
 async function organize(tracks, sourceRoot, {
   writeRekordbox = true,
   onProgress = null,
@@ -215,55 +225,39 @@ async function organize(tracks, sourceRoot, {
   for (const f of res.failures) result.addError(f.from, new Error(f.error));
 
   if (writeRekordbox) {
-    const xmlPath = path.join(res.outputRoot, CONFIG.REKORDBOX_XML_NAME);
-    const xml = buildRekordboxXml(tracks);
-    await fsp.writeFile(xmlPath, xml, 'utf8');
+    // Delay-require per rompere cycle potenziali (rekordboxExportService
+    // non importa organizerService, ma manteniamo la regola).
+    const rekordboxExportService = require('./rekordboxExportService');
+    const xmlPath = await rekordboxExportService.generateRekordboxXml(tracks, res.outputRoot);
     result.rekordboxXmlPath = xmlPath;
     tracks.forEach(t => { if (t.status === 'organized') t.status = 'exported'; });
   }
   return result.finalize();
 }
 
-function esc(s = '') {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function trackXmlNode(t, trackId) {
-  const uri = t.rekordboxUri || pathToRekordboxUri(t.newFilePath || t.filePath);
-  const bpmFormatted = t.bpm ? Number(t.bpm).toFixed(2) : '0.00';
-  const bestTitle = t.recognizedTitle || t.localTitle || (t.fileName || '').replace(/\.[^.]+$/, '');
-  const bestArtist = t.recognizedArtist || t.localArtist || 'Unknown';
-  return `<TRACK TrackID="${trackId}" Name="${esc(bestTitle)}" `
-    + `Artist="${esc(bestArtist)}" `
-    + `Album="${esc(t.recognizedAlbum || '')}" `
-    + `Genre="${esc(t.detectedGenre || '')}" `
-    + `AverageBpm="${bpmFormatted}" `
-    + `TotalTime="${Math.round(t.duration || 0)}" `
-    + `Kind="${esc(String(t.format || '').toUpperCase())} File" `
-    + `Location="${uri}" />`;
-}
-
+/**
+ * Wrapper retro-compat: delega al nuovo generator.
+ * Usa `organize()` con un outputRoot già calcolato se serve solo l'XML.
+ * Firma preservata per i test che lo chiamavano passando un array di track.
+ */
 function buildRekordboxXml(tracks) {
-  const nodes = (tracks || []).map((t, i) => {
+  const rekordboxExportService = require('./rekordboxExportService');
+  const idMap = new Map();
+  (tracks || []).forEach((t, i) => {
     const id = i + 1;
     t.rekordboxTrackId = id;
-    return '    ' + trackXmlNode(t, id);
-  }).join('\n');
-
+    if (t.id) idMap.set(t.id, id);
+  });
+  const collection = rekordboxExportService.buildCollectionXml(tracks || [], idMap);
+  const playlists = rekordboxExportService.buildPlaylistsXml(tracks || [], idMap);
   return (
 `<?xml version="1.0" encoding="UTF-8"?>
 <DJ_PLAYLISTS Version="1.0.0">
-  <PRODUCT Name="DJ Library Manager" Version="0.1.0" Company="DJ Library Manager"/>
+  <PRODUCT Name="DJ Library Manager" Version="1.0.0" Company="Nicho DJ Tools"/>
   <COLLECTION Entries="${(tracks || []).length}">
-${nodes}
+${collection}
   </COLLECTION>
-  <PLAYLISTS>
-    <NODE Type="0" Name="ROOT" Count="0"/>
-  </PLAYLISTS>
+${playlists}
 </DJ_PLAYLISTS>
 `);
 }

@@ -69,6 +69,52 @@ function fmtSize(bytes) {
   return `${(mb / 1024).toFixed(2)} GB`;
 }
 
+/**
+ * Modal di conferma generico. Usa le classi CSS esistenti (.modal, .modal-*).
+ * Ritorna Promise<boolean> — true se l'utente ha cliccato conferma.
+ *
+ * @param {{title:string, body:string, confirmText?:string,
+ *          cancelText?:string, danger?:boolean}} opts
+ */
+function showConfirmModal({ title, body, confirmText = 'Conferma', cancelText = 'Annulla', danger = false }) {
+  return new Promise(resolve => {
+    const root = document.createElement('div');
+    root.className = 'modal';
+    root.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <div class="modal-content modal-sm">
+        <div class="modal-header">
+          <h2>${escapeHtml(title)}</h2>
+        </div>
+        <div class="modal-body">
+          <p style="white-space:pre-line; line-height:1.5">${escapeHtml(body)}</p>
+        </div>
+        <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end; padding:14px 20px; border-top:1px solid var(--border-glass)">
+          <button class="btn btn-ghost" data-act="cancel">${escapeHtml(cancelText)}</button>
+          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="confirm">${escapeHtml(confirmText)}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    const cleanup = (value) => {
+      root.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(value);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cleanup(false);
+      if (e.key === 'Enter')  cleanup(true);
+    };
+    document.addEventListener('keydown', onKey);
+    root.querySelector('[data-act="cancel"]').addEventListener('click', () => cleanup(false));
+    root.querySelector('[data-act="confirm"]').addEventListener('click', () => cleanup(true));
+    root.querySelector('.modal-backdrop').addEventListener('click', () => cleanup(false));
+    // Focus sul conferma per UX tastiera
+    setTimeout(() => root.querySelector('[data-act="confirm"]')?.focus(), 0);
+  });
+}
+
 function bestTitle(t) {
   return t.recognizedTitle || t.localTitle || (t.fileName || '').replace(/\.[^.]+$/, '') || 'Unknown';
 }
@@ -268,15 +314,21 @@ async function scanFolder(folder) {
 }
 
 async function scanFiles(paths) {
-  const r = await window.api.scanFiles(paths);
-  if (!r.ok) { pushLog({ level: 'error', icon: '❌', message: `Scan errore: ${r.error}` }); return; }
-  // Fonde con eventuali file già caricati, deduplica per filePath
-  const seen = new Set(state.files.map(f => f.filePath));
-  for (const t of r.data) if (!seen.has(t.filePath)) state.files.push(t);
-  renderFilesTable();
-  pushLog({ level: 'success', icon: '✓', message: `Caricati ${r.data.length} file` });
-  // Auto-trigger analisi completa senza attendere click utente
-  if (r.data.length > 0) await startAnalysis();
+  // Loading state: drop di 50-500 file può metterci qualche secondo per la
+  // sola lettura metadati. Senza feedback la UI sembra congelata.
+  const dz = document.querySelector('#drop-zone');
+  dz?.classList.add('loading');
+  try {
+    const r = await window.api.scanFiles(paths);
+    if (!r.ok) { pushLog({ level: 'error', icon: '❌', message: `Scan errore: ${r.error}` }); return; }
+    const seen = new Set(state.files.map(f => f.filePath));
+    for (const t of r.data) if (!seen.has(t.filePath)) state.files.push(t);
+    renderFilesTable();
+    pushLog({ level: 'success', icon: '✓', message: `Caricati ${r.data.length} file` });
+    if (r.data.length > 0) await startAnalysis();
+  } finally {
+    dz?.classList.remove('loading');
+  }
 }
 
 // ── Drop zone ─────────────────────────────────────────────────────────
@@ -359,29 +411,81 @@ async function startAnalysis() {
   await runDoEverythingPipeline();
 }
 
+// ── Policy sicurezza doppioni ────────────────────────────────────
+// Un gruppo è auto-eliminabile SOLO se: non richiede revisione manuale,
+// ha match acustico esatto (acoustic_exact) e score ≥ 0.95.
+// Text match e acoustic_similar vengono sempre lasciati al tab Doppioni.
+const AUTO_DELETE_MIN_SCORE = 0.95;
+const AUTO_DELETE_BATCH_CAP = 500;
+
+function isAutoDeletable(group) {
+  if (!group) return false;
+  if (group.requiresManualReview) return false;
+  if (group.matchType !== 'acoustic_exact' && group.matchType !== 'acr_exact') return false;
+  return Number(group.similarityScore || 0) >= AUTO_DELETE_MIN_SCORE;
+}
+
 async function runDoEverythingPipeline() {
   const stats = { renamed: 0, folders: 0, duplicates: 0, deleted: 0, xmlOk: false };
   try {
-    // 1. Auto-elimina doppioni (sposta nel Cestino, reversibile)
-    //    Tiene la versione consigliata, manda il resto al Cestino di Windows.
-    const toDeletePaths = [];
-    for (const g of (state.duplicates || [])) {
+    // 1. Auto-elimina SOLO doppioni acustici certi (≥95%). Text match e
+    //    acoustic_similar → tab Doppioni per revisione umana.
+    const safeGroups = (state.duplicates || []).filter(isAutoDeletable);
+    const reviewGroups = (state.duplicates || []).filter(g => !isAutoDeletable(g));
+    const toDeleteItems = [];
+    for (const g of safeGroups) {
       for (const it of (g.items || [])) {
-        if (!it.recommended && it.filePath) toDeletePaths.push(it.filePath);
+        if (!it.recommended && it.filePath) toDeleteItems.push({
+          filePath: it.filePath,
+          fileSize: it.fileSize || 0,
+          keeperPath: g.items.find(x => x.recommended)?.filePath || '',
+          matchType: g.matchType,
+          score: g.similarityScore,
+        });
       }
     }
-    if (toDeletePaths.length > 0) {
-      pushLog({ level: 'info', icon: '🗑️', message: `Elimino ${toDeletePaths.length} doppioni (nel Cestino)...` });
-      const del = await window.api.autoDeleteDuplicates(toDeletePaths);
-      if (del.ok) {
-        stats.deleted = del.data?.deleted || 0;
-        // Rimuovi anche lato renderer
-        const removed = new Set(toDeletePaths);
-        state.files = state.files.filter(t => !removed.has(t.filePath));
-        state.duplicates = [];
-        renderFilesTable();
+    const toDeletePaths = toDeleteItems.map(x => x.filePath);
+    const totalBytes = toDeleteItems.reduce((s, x) => s + (x.fileSize || 0), 0);
+
+    // Safety cap: troppi doppioni → abort, serve revisione umana
+    if (toDeletePaths.length > AUTO_DELETE_BATCH_CAP) {
+      pushLog({
+        level: 'warn', icon: '⚠️',
+        message: `Troppi doppioni (${toDeletePaths.length}) — skip auto-delete, revisiona nel tab Doppioni`,
+      });
+    } else if (toDeletePaths.length > 0) {
+      // Conferma SEMPRE prima di cestinare
+      const sizeMb = (totalBytes / 1024 / 1024).toFixed(1);
+      const reviewNote = reviewGroups.length > 0
+        ? `\n\n⚠️ ${reviewGroups.length} gruppi aggiuntivi richiedono revisione manuale (tab Doppioni).`
+        : '';
+      const ok = await showConfirmModal({
+        title: '🗑️ Elimina doppioni',
+        body:
+          `Sto per spostare nel Cestino:\n\n` +
+          `• ${toDeletePaths.length} file (${sizeMb} MB)\n` +
+          `• Solo doppioni acustici certi (≥${Math.round(AUTO_DELETE_MIN_SCORE * 100)}% simili)` +
+          reviewNote +
+          `\n\nPuoi recuperarli dal Cestino di Windows.`,
+        confirmText: 'Sposta nel Cestino',
+        cancelText: 'Annulla',
+      });
+      if (ok) {
+        pushLog({ level: 'info', icon: '🗑️', message: `Elimino ${toDeletePaths.length} doppioni (nel Cestino)...` });
+        const del = await window.api.autoDeleteDuplicates({ items: toDeleteItems });
+        if (del.ok) {
+          stats.deleted = del.data?.deleted || 0;
+          const removed = new Set(toDeletePaths);
+          state.files = state.files.filter(t => !removed.has(t.filePath));
+          // Tieni solo i gruppi che richiedono revisione manuale
+          state.duplicates = reviewGroups;
+          renderFilesTable();
+          renderDuplicates();
+        } else {
+          pushLog({ level: 'error', icon: '❌', message: `Auto-delete: ${del.error}` });
+        }
       } else {
-        pushLog({ level: 'error', icon: '❌', message: `Auto-delete: ${del.error}` });
+        pushLog({ level: 'info', icon: 'ℹ️', message: 'Auto-delete annullato' });
       }
     }
 
@@ -606,21 +710,47 @@ function renderDupBucket(groups) {
 }
 
 function renderDupGroup(g) {
-  const matchClass = g.matchType === 'acoustic_exact' ? 'badge-match-exact' : 'badge-match-similar';
-  const matchLabel = g.matchType === 'acoustic_exact' ? '🔴 IDENTICO' : '🟠 SIMILE';
-  const methodLabel = g.matchType === 'text_match' ? 'Testo' : 'Chromaprint';
-  const cards = (g.items || []).map(it => renderDupCard(it)).join('');
-  return `<div class="dupe-group">
+  // Badge principale: 3 livelli di fiducia.
+  let matchClass, matchLabel, safetyBadge, safetyNote = '';
+  if (g.matchType === 'acoustic_exact' && !g.requiresManualReview) {
+    matchClass = 'badge-match-exact';
+    matchLabel = '🔴 IDENTICO';
+    safetyBadge = '<span class="badge badge-safe">✅ Sicuro eliminare</span>';
+  } else if (g.matchType === 'acoustic_similar') {
+    matchClass = 'badge-match-similar';
+    matchLabel = '🟠 SIMILE';
+    safetyBadge = '<span class="badge badge-warn">⚡ Verifica consigliata</span>';
+    safetyNote = 'Fingerprint acustico simile ma non identico. Ascolta entrambi.';
+  } else {
+    matchClass = 'badge-match-similar';
+    matchLabel = '🟡 TEXT MATCH';
+    safetyBadge = '<span class="badge badge-review">⚠️ Revisione richiesta</span>';
+    safetyNote = 'Match trovato solo per nome/artista, non confermato acusticamente. Ascolta entrambi prima di eliminare.';
+  }
+
+  const methodLabel = g.matchType === 'text_match' ? 'Testo (fuse.js)'
+                    : g.matchType === 'acr_exact'  ? 'ACRCloud'
+                    : 'Chromaprint';
+  const cards = (g.items || []).map(it =>
+    renderDupCard(it, { requiresManualReview: !!g.requiresManualReview })
+  ).join('');
+  const note = safetyNote
+    ? `<div class="dupe-group-note">${escapeHtml(safetyNote)}</div>`
+    : '';
+
+  return `<div class="dupe-group ${g.requiresManualReview ? 'needs-review' : ''}">
     <div class="dupe-group-head">
       <span class="badge ${matchClass}">${matchLabel}</span>
-      <span class="muted">Similarità acustica: ${Math.round((g.similarityScore || 0) * 100)}%</span>
+      ${safetyBadge}
+      <span class="muted">Similarità: ${Math.round((g.similarityScore || 0) * 100)}%</span>
       <span class="badge badge-method">[${methodLabel}]</span>
     </div>
+    ${note}
     <div class="dupe-group-cards">${cards}</div>
   </div>`;
 }
 
-function renderDupCard(it) {
+function renderDupCard(it, opts = {}) {
   const isMixSeg = !!it.isMixSegment;
   const cardClass = it.recommended ? 'dupe-card recommended' : 'dupe-card';
   const head = isMixSeg ? '🎛️ NEL MIX' : '🎵 FILE SINGOLO';
@@ -628,6 +758,9 @@ function renderDupCard(it) {
   const recBadge = it.recommended
     ? `<span class="badge-recommended" data-tooltip="${escapeHtml(reason || 'qualità migliore')}">★ CONSIGLIATO${reason ? ' — ' + escapeHtml(reason) : ''}</span>`
     : '';
+  // Se il gruppo richiede revisione manuale, il checkbox "Elimina" NON è
+  // pre-attivato dal "Fai Tutto". L'utente può comunque selezionarlo a mano.
+  const needsReview = !!opts.requiresManualReview;
 
   // Badge qualità: formato + bitrate con codice colore
   //  ≥300  → verde  (320 kbps / lossless)
@@ -649,9 +782,12 @@ function renderDupCard(it) {
   const id = it.trackId || '';
   const checked = state.dupesSelectedIds.has(id) ? 'checked' : '';
 
+  const reviewBadge = needsReview
+    ? '<span class="badge badge-review" style="font-size:10px">revisione</span>'
+    : '';
   return `<div class="${cardClass}">
     <div class="dupe-card-head">
-      <span>${head}</span>${recBadge}
+      <span>${head}</span>${recBadge}${reviewBadge}
     </div>
     <div class="dupe-card-name">${escapeHtml(it.displayName || it.filePath || '')}</div>
     ${qualityBadges}
@@ -883,6 +1019,56 @@ function renderOrganize() {
   bindTreeToggles(host);
 
   $('#btn-organize-execute').disabled = !state.organize.outputRoot;
+
+  // Aggiorna widget drive info (spazio / USB warning)
+  refreshDiskInfoWidget(state.organize.outputRoot);
+}
+
+// ── Widget drive info sotto il path di output ─────────────────────────
+async function refreshDiskInfoWidget(outputPath) {
+  const host = $('#output-disk-info');
+  if (!host) return;
+  if (!outputPath) { host.innerHTML = ''; return; }
+  try {
+    const r = await window.api.getDiskInfo(outputPath);
+    if (!r.ok) { host.innerHTML = ''; return; }
+    const d = r.data || {};
+    const totalSize = state.organize.stats?.totalSizeBytes || 0;
+    const freeStr = d.freeBytes != null ? fmtSize(d.freeBytes) : '—';
+    const totalStr = d.totalBytes != null ? fmtSize(d.totalBytes) : '—';
+    const driveLabel = d.driveLetter ? `Drive ${d.driveLetter}:` : '';
+
+    const isUsb = d.isRemovable;
+    const notEnoughSpace = d.freeBytes != null && totalSize > 0 && totalSize > d.freeBytes;
+
+    const parts = [];
+    if (isUsb) {
+      parts.push(`
+        <div class="disk-info-row disk-info-usb">
+          <span>💾</span>
+          <strong>USB / Drive rimovibile</strong>
+          <span class="muted">— la velocità dipende dalla pennetta</span>
+        </div>`);
+    }
+    parts.push(`
+      <div class="disk-info-row">
+        <span>📊</span>
+        <span>${driveLabel} spazio libero: <strong>${freeStr}</strong> / ${totalStr}</span>
+        ${totalSize ? `<span class="muted">· richiesti ~${fmtSize(totalSize)}</span>` : ''}
+      </div>`);
+    if (notEnoughSpace) {
+      parts.push(`
+        <div class="disk-info-row disk-info-error">
+          <span>🚫</span>
+          <strong>Spazio insufficiente</strong>
+          <span class="muted">— servono almeno ${fmtSize(totalSize)}, disponibili ${freeStr}</span>
+        </div>`);
+      $('#btn-organize-execute').disabled = true;
+    }
+    host.innerHTML = parts.join('');
+  } catch {
+    host.innerHTML = '';
+  }
 }
 
 function renderTree(tree) {

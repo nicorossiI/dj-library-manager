@@ -120,6 +120,9 @@ class DuplicateGroup {
    * @param {'acoustic_exact'|'acoustic_similar'|'text_match'} [data.matchType]
    * @param {number} [data.similarityScore] 0..1
    * @param {DuplicateItem[]} [data.items]
+   * @param {boolean} [data.requiresManualReview] — true se il match è sotto la
+   *     soglia di auto-delete (text_match o acoustic_similar): il renderer
+   *     mostra un badge arancione e la pipeline "Fai Tutto" salta questo gruppo.
    */
   constructor(data = {}) {
     this.id = data.id || uuid();
@@ -127,6 +130,7 @@ class DuplicateGroup {
     this.matchType = data.matchType || 'acoustic_exact';
     this.similarityScore = data.similarityScore ?? 1;
     this.items = (data.items || []).map(it => (it instanceof DuplicateItem ? it : new DuplicateItem(it)));
+    this.requiresManualReview = !!data.requiresManualReview;
     this.refreshRecommended();
   }
 
@@ -190,6 +194,7 @@ class DuplicateGroup {
       type: this.type,
       matchType: this.matchType,
       similarityScore: this.similarityScore,
+      requiresManualReview: this.requiresManualReview,
       items: this.items.map(i => i.toJSON()),
     };
   }

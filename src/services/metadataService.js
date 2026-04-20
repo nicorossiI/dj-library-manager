@@ -212,24 +212,26 @@ async function writeTags(filePath, tags = {}) {
 // Label lingua leggibili — usate per scrivere Comment + Grouping ID3
 // così Rekordbox filtra la libreria per lingua senza cartelle separate.
 const LANG_LABELS = {
-  'es':    'Spagnolo',
-  'it':    'Italiano',
-  'it_es': 'Italiano-Spagnolo',
-  'en':    'Inglese',
-  'mixed': 'Misto',
+  'es':           'Spagnolo',
+  'it':           'Italiano',
+  'it_es':        'Italiano-Spagnolo',
+  'en':           'Inglese',
+  'mixed':        'Misto',
   'instrumental': 'Strumentale',
-  'unknown': 'Misto',
+  // 'unknown' non è in LANG_LABELS di proposito: se la lingua è davvero ignota
+  // preferiamo non scrivere nulla piuttosto che inventare un "Misto" spurio.
 };
 
 function normalizeLangKey(l) {
   const s = String(l || '').toLowerCase().trim();
-  if (!s) return 'mixed';
+  if (!s) return 'unknown';
   if (/^(es|spa|spanish|spagnol\w*)$/.test(s)) return 'es';
   if (/^(it|ita|italian\w*)$/.test(s)) return 'it';
   if (/^(en|eng|english|ingles\w*)$/.test(s)) return 'en';
   if (s === 'it_es' || s === 'ites' || s === 'es_it') return 'it_es';
   if (s === 'instrumental') return 'instrumental';
-  return 'mixed';
+  if (s === 'mixed') return 'mixed';
+  return 'unknown';
 }
 
 /**
@@ -253,9 +255,14 @@ async function writeAnalysisTags(track) {
   // Lingua + tipo → Comment + Grouping (Rekordbox li mostra come campi filtrabili).
   // Il Comment viene scritto SOLO se è vuoto o se è già un nostro tag precedente,
   // per evitare di cancellare note personali dell'utente.
+  //
+  // Se la lingua è DAVVERO sconosciuta (nessuna rilevazione, nessun default),
+  // NON scriviamo nulla: meglio un comment vuoto che un "Misto" inventato che
+  // rimpiazza eventuali note dell'utente fatte in precedenza.
   try {
     const langKey = normalizeLangKey(track.vocalsLanguage || track.detectedLanguage);
-    const langLabel = LANG_LABELS[langKey] || 'Misto';
+    const langLabel = LANG_LABELS[langKey];
+
     let typeLabel = 'Singolo';
     if (track.isMix || track.type === 'mix') {
       typeLabel = 'Mix';
@@ -266,24 +273,30 @@ async function writeAnalysisTags(track) {
       typeLabel = gLabel ? `${gLabel} Edit` : 'Mashup';
     }
 
-    // Leggi eventuale comment già presente per decidere se sovrascrivere.
-    const NodeID3 = require('node-id3');
-    const existingTags = NodeID3.read(track.filePath) || {};
-    const existingComment = existingTags?.comment?.text || '';
-    const KNOWN_LABELS = ['Spagnolo', 'Italiano', 'Italiano-Spagnolo',
-                          'Inglese', 'Misto', 'Strumentale'];
-    const isOurTag = existingComment.includes(' | ')
-      && KNOWN_LABELS.some(l => existingComment.startsWith(l));
+    // Se non abbiamo info sulla lingua né tipo distintivo, salta: evita di
+    // scrivere "Misto | Singolo" che non aggiunge valore e rischia di
+    // sovrascrivere note utente.
+    const hasRealLangInfo = langKey !== 'unknown' && !!langLabel;
+    const hasDistinctiveType = typeLabel !== 'Singolo';
 
-    if (!existingComment || isOurTag) {
-      update.comment = {
-        language: 'ita',
-        text: `${langLabel} | ${typeLabel}`,
-      };
+    if (hasRealLangInfo || hasDistinctiveType) {
+      const NodeID3 = require('node-id3');
+      const existingTags = NodeID3.read(track.filePath) || {};
+      const existingComment = existingTags?.comment?.text || '';
+      const KNOWN_LABELS = Object.values(LANG_LABELS);
+      const isOurTag = existingComment.includes(' | ')
+        && KNOWN_LABELS.some(l => existingComment.startsWith(l));
+
+      const text = `${langLabel || 'Misto'} | ${typeLabel}`;
+      if (!existingComment || isOurTag) {
+        update.comment = { language: 'ita', text };
+      }
+      if (hasRealLangInfo) {
+        // Grouping (TIT1): campo custom dedicato — scriviamo solo se abbiamo
+        // info reali sulla lingua.
+        update.grouping = langLabel;
+      }
     }
-    // Grouping (TIT1) letto da Rekordbox come campo custom — lo scriviamo sempre
-    // perché è un campo dedicato, non un free-form come Comment.
-    update.grouping = langLabel;
   } catch { /* noop */ }
 
   if (Object.keys(update).length === 0) return { ok: false, reason: 'nothing to write' };

@@ -50,6 +50,12 @@ async function walkAudioFiles(rootDir, { maxDepth = CONFIG.MAX_SCAN_DEPTH } = {}
   return results;
 }
 
+/**
+ * Ritorna un path che NON esiste al momento della chiamata.
+ * ATTENZIONE: tra la risoluzione e la scrittura c'è una finestra di race.
+ * Usa safeCopy/safeMove (che sfruttano COPYFILE_EXCL) per operazioni atomiche.
+ * Questo helper resta utile per la preview (newFilePath non ancora scritto).
+ */
 async function uniquePath(targetPath) {
   const dir = path.dirname(targetPath);
   const ext = path.extname(targetPath);
@@ -67,33 +73,82 @@ async function uniquePath(targetPath) {
   }
 }
 
-async function safeCopy(from, to, { overwrite = false } = {}) {
-  await ensureDir(path.dirname(to));
-  const finalPath = overwrite ? to : await uniquePath(to);
-  await fsp.copyFile(from, finalPath);
-  return finalPath;
+/**
+ * Genera candidato N basato su `targetPath`. N=0 → targetPath stesso.
+ * N=1 → "Name (1).ext", N=2 → "Name (2).ext", ecc.
+ */
+function _candidate(targetPath, i) {
+  if (i === 0) return targetPath;
+  const dir = path.dirname(targetPath);
+  const ext = path.extname(targetPath);
+  const base = path.basename(targetPath, ext);
+  return path.join(dir, `${base} (${i})${ext}`);
 }
 
+/**
+ * Copia atomica: usa COPYFILE_EXCL che fallisce con EEXIST se il dest esiste.
+ * Se non `overwrite`, loop sul counter finché trova un nome libero e la copia
+ * va a buon fine atomicamente. Previene la race di uniquePath+copyFile separati.
+ */
+async function safeCopy(from, to, { overwrite = false } = {}) {
+  await ensureDir(path.dirname(to));
+  if (overwrite) {
+    await fsp.copyFile(from, to);
+    return to;
+  }
+  const MAX = 1000;
+  for (let i = 0; i < MAX; i++) {
+    const candidate = _candidate(to, i);
+    try {
+      await fsp.copyFile(from, candidate, fs.constants.COPYFILE_EXCL);
+      return candidate;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      // dest esiste: prova il prossimo counter
+    }
+  }
+  throw new Error(`safeCopy: impossibile trovare nome libero dopo ${MAX} tentativi per ${to}`);
+}
+
+/**
+ * Move atomico: prova rename (preserva inode, EEXIST/EPERM su Windows se dest esiste),
+ * poi falliamo esplicitamente prima di sovrascrivere. Fallback copy+unlink su EXDEV.
+ */
 async function safeMove(from, to, { overwrite = false, copyThenDelete = false } = {}) {
   await ensureDir(path.dirname(to));
-  const finalPath = overwrite ? to : await uniquePath(to);
+
   if (copyThenDelete) {
-    await fsp.copyFile(from, finalPath);
+    const finalPath = await safeCopy(from, to, { overwrite });
     await fsp.unlink(from).catch(() => {});
     return finalPath;
   }
-  try {
-    await fsp.rename(from, finalPath);
-    return finalPath;
-  } catch (err) {
-    if (err.code === 'EXDEV') {
-      // cross-device: fallback copy+delete
-      await fsp.copyFile(from, finalPath);
-      await fsp.unlink(from).catch(() => {});
-      return finalPath;
+
+  const MAX = 1000;
+  for (let i = 0; i < (overwrite ? 1 : MAX); i++) {
+    const candidate = overwrite ? to : _candidate(to, i);
+    try {
+      // Su Windows rename fallisce con EEXIST/EPERM se il dest esiste.
+      // Su POSIX rename è atomic-replace: controlliamo noi prima.
+      if (!overwrite) {
+        try {
+          await fsp.access(candidate);
+          continue; // esiste, prossimo candidato
+        } catch { /* non esiste: procedi */ }
+      }
+      await fsp.rename(from, candidate);
+      return candidate;
+    } catch (err) {
+      if (err.code === 'EXDEV') {
+        // Cross-device: fallback atomico via safeCopy + unlink.
+        const finalPath = await safeCopy(from, overwrite ? to : _candidate(to, i), { overwrite });
+        await fsp.unlink(from).catch(() => {});
+        return finalPath;
+      }
+      if (err.code === 'EEXIST' || err.code === 'EPERM') continue;
+      throw err;
     }
-    throw err;
   }
+  throw new Error(`safeMove: impossibile trovare nome libero dopo ${MAX} tentativi per ${to}`);
 }
 
 async function fileStat(p) {

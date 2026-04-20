@@ -60,7 +60,7 @@ portable:
 # deve contenere il nuovo DJ_Library_Manager.exe + latest.yml.
 publish:
   provider: github
-  owner: nicorossii
+  owner: nicorossiI
   repo: dj-library-manager
   private: false
   releaseType: release

@@ -19,6 +19,99 @@
  * Dipendenze: crypto, stringUtils (pathToRekordboxUri, isMashupOrEdit)
  */
 
+// ─── Type annotations (JSDoc) ──────────────────────────────────────
+/**
+ * @typedef {'single' | 'mashup' | 'mix' | 'instrumental'} TrackType
+ *
+ * @typedef {'es' | 'it' | 'en' | 'it_es' | 'mixed' | 'instrumental' | 'unknown'}
+ *          VocalsLanguage
+ *
+ * @typedef {'reggaeton' | 'afrohouse' | 'techhouse' | 'deephouse' | 'dembow'
+ *          | 'bachata' | 'salsa' | 'tropical' | 'hiphop' | 'trap' | 'techno'
+ *          | 'riscaldamento' | 'unknown'} GenreKey
+ *
+ * @typedef {'pending' | 'analyzing' | 'classified' | 'recognized' | 'renamed'
+ *          | 'organized' | 'exported' | 'error'} TrackStatus
+ *
+ * @typedef {'acrcloud' | 'acoustid_musicbrainz' | 'id3_tags' | 'filename_parser'
+ *          | 'shazam' | 'none' | null} RecognitionSource
+ *
+ * @typedef {'path' | 'filename' | 'artist_filename' | 'discogs' | 'id3_genre'
+ *          | 'lastfm' | 'artist_hint' | 'mbgenre' | 'title_kw' | 'bpm_range'
+ *          | 'ai_genre' | 'ai_local' | 'none' | null} ClassificationSource
+ *
+ * @typedef {Object} MixSegment
+ * @property {string}  artist
+ * @property {string}  title
+ * @property {number}  startSeconds
+ * @property {number}  [bpm]
+ * @property {number}  [confidence]
+ *
+ * @typedef {Object} TrackData
+ *   Accepted constructor payload. All fields are optional; defaults documented
+ *   in the constructor.
+ *
+ * @property {string} [id]
+ * @property {number} [rekordboxTrackId]
+ *
+ * @property {string} [filePath]
+ * @property {string} [fileName]
+ * @property {number} [fileSize]
+ * @property {string} [format]
+ *
+ * @property {string} [localTitle]
+ * @property {string} [localArtist]
+ * @property {number} [duration]          seconds (float)
+ * @property {number|null} [bpm]          float
+ * @property {string} [key]               Camelot notation (e.g. "8B")
+ * @property {string} [localGenre]
+ * @property {number} [bitrate]           kbps
+ * @property {number} [sampleRate]        Hz
+ *
+ * @property {string|null} [fingerprint]  Chromaprint base64-url
+ * @property {number} [fingerprintDuration]
+ *
+ * @property {string} [recognizedTitle]
+ * @property {string} [recognizedArtist]
+ * @property {string} [recognizedAlbum]
+ * @property {number|null} [recognizedBpm]
+ * @property {number} [recognitionConfidence]  0-100
+ * @property {boolean} [isRecognized]
+ * @property {RecognitionSource} [recognitionSource]
+ * @property {ClassificationSource} [classificationSource]
+ * @property {string} [languageSource]
+ *
+ * @property {TrackType} [type]
+ * @property {boolean} [isMix]
+ * @property {boolean} [isMashup]
+ * @property {MixSegment[]} [mixSegments]
+ *
+ * @property {GenreKey|string} [detectedGenre]     from cascading classifier
+ * @property {GenreKey|string} [aiGenre]           from DiscogsEffNet/Replicate
+ * @property {number} [aiGenreConfidence]
+ * @property {string[]} [aiTop]
+ * @property {GenreKey|string} [classifiedGenre]   alias legacy
+ * @property {VocalsLanguage} [vocalsLanguage]
+ * @property {string} [detectedLanguage]           alias legacy
+ * @property {string} [targetFolder]               nome cartella piatta
+ * @property {string} [rekordboxPlaylistFolder]    alias targetFolder
+ *
+ * @property {string} [newFileName]
+ * @property {string} [newFilePath]
+ * @property {string} [originalFileName]
+ * @property {string} [rekordboxUri]               file://localhost/...
+ *
+ * @property {TrackStatus} [status]
+ * @property {boolean} [isDuplicate]
+ * @property {string|null} [duplicateGroupId]
+ * @property {string} [errorMessage]
+ *
+ * @property {string} [mbid]               MusicBrainz release ID
+ * @property {string} [coverArtUrl]
+ * @property {boolean} [artworkFetched]
+ * @property {number} [rating]             0-5 stars
+ */
+
 'use strict';
 
 const crypto = require('crypto');
@@ -26,6 +119,7 @@ const path = require('path');
 const { pathToRekordboxUri, isMashupOrEdit } = require('../utils/stringUtils');
 
 class Track {
+  /** @param {TrackData} [data] */
   constructor(data = {}) {
     // ── Identificazione ────────────────────────────────────────────────
     this.id = data.id || Track.computeId(data.filePath || '');

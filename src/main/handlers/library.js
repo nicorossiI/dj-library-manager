@@ -18,9 +18,28 @@ const organizerService = require('../../services/organizerService');
 const libraryUpdateService = require('../../services/libraryUpdateService');
 const fingerprintService = require('../../services/fingerprintService');
 const acrcloudService = require('../../services/acrcloudService');
+const { CONFIG } = require('../../constants/CONFIG');
 
 function register(ctx) {
-  const { ipcMain, appState, send, emitLog, ok, fail } = ctx;
+  const { ipcMain, appState, store, send, emitLog, ok, fail } = ctx;
+
+  const DUP_CFG = CONFIG.duplicates || {};
+  const TRASH_LOG_MAX = DUP_CFG.trashLogMax ?? 500;
+
+  /**
+   * Storico delle eliminazioni — serve per il bottone "📋 Storico" e per
+   * l'undo manuale (recupero dal Cestino di Windows).
+   * Ogni entry: { path, fileName, trashedAt, reason, keeperPath, matchType, score }
+   */
+  function appendTrashLog(entries) {
+    try {
+      const current = store.get('trashedFiles', []);
+      const merged = [...current, ...entries].slice(-TRASH_LOG_MAX);
+      store.set('trashedFiles', merged);
+    } catch (err) {
+      console.warn('[trash-log]', err.message);
+    }
+  }
 
   // ── library:update-existing (modalità "aggiungi a libreria esistente") ──
   ipcMain.handle('library:update-existing', async (event, payload = {}) => {
@@ -94,35 +113,127 @@ function register(ctx) {
     } catch (e) { return fail(e); }
   });
 
-  ipcMain.handle('duplicates:auto-delete', async (_e, filePaths = null) => {
+  /**
+   * Cestina i file doppione con safety checks.
+   *
+   * Payload accettati:
+   *   - `null` → usa `appState.duplicateReport` (tutti i non-recommended SICURI)
+   *   - `string[]` → array di path (legacy)
+   *   - `{ items: Array<{filePath, fileSize, keeperPath, matchType, score}> }`
+   *     → nuovo formato con metadata per lo storico (preferito)
+   *
+   * Safeguard:
+   *   - Non cestina gruppi `requiresManualReview`
+   *   - Non cestina gruppi sotto `autoDeleteMinScore`
+   *   - Cap sul numero totale di file per batch (`batchSizeCap`)
+   */
+  ipcMain.handle('duplicates:auto-delete', async (_e, payload = null) => {
     try {
-      let paths = [];
-      if (Array.isArray(filePaths) && filePaths.length > 0) {
-        paths = filePaths.filter(Boolean);
+      const batchCap = DUP_CFG.batchSizeCap ?? 500;
+      const minScore = DUP_CFG.autoDeleteMinScore ?? 0.95;
+
+      // Normalizza il payload in un array di { filePath, ... metadati }
+      let items = [];
+      if (payload && Array.isArray(payload.items)) {
+        items = payload.items.filter(x => x && x.filePath);
+      } else if (Array.isArray(payload) && payload.length > 0) {
+        items = payload.filter(Boolean).map(p => ({ filePath: p }));
       } else {
+        // Fallback dal report in state
         const groups = appState.duplicateReport || [];
         for (const g of groups) {
+          if (g.requiresManualReview) continue;
+          if (Number(g.similarityScore || 0) < minScore) continue;
+          if (g.matchType !== 'acoustic_exact' && g.matchType !== 'acr_exact') continue;
+          const keeper = g.items?.find(i => i.recommended);
           for (const it of (g.items || [])) {
-            if (!it.recommended && it.filePath) paths.push(it.filePath);
+            if (!it.recommended && it.filePath) {
+              items.push({
+                filePath: it.filePath,
+                fileSize: it.fileSize || 0,
+                keeperPath: keeper?.filePath || '',
+                matchType: g.matchType,
+                score: g.similarityScore,
+              });
+            }
           }
         }
       }
 
+      if (items.length > batchCap) {
+        return fail(new Error(
+          `Troppi doppioni (${items.length}) per auto-delete (cap: ${batchCap}). ` +
+          `Usa il tab Doppioni per revisione manuale.`
+        ));
+      }
+
       const deleted = [];
       const errors = [];
-      for (const p of paths) {
+      const logEntries = [];
+      const now = new Date().toISOString();
+
+      for (const it of items) {
+        const p = it.filePath;
         try {
           if (!fs.existsSync(p)) continue;
           await shell.trashItem(p);
           deleted.push(p);
+          logEntries.push({
+            path: p,
+            fileName: path.basename(p),
+            trashedAt: now,
+            reason: it.keeperPath
+              ? `Doppione di: ${path.basename(it.keeperPath)}`
+              : 'Doppione',
+            keeperPath: it.keeperPath || '',
+            matchType: it.matchType || '',
+            score: it.score || 0,
+            fileSize: it.fileSize || 0,
+          });
           const idx = appState.loadedTracks.findIndex(t => t.filePath === p);
           if (idx >= 0) appState.loadedTracks.splice(idx, 1);
         } catch (err) {
           errors.push({ path: p, error: String(err?.message || err) });
         }
       }
+
+      if (logEntries.length > 0) appendTrashLog(logEntries);
+
       emitLog('success', '🗑️', `Doppioni nel cestino: ${deleted.length}${errors.length ? ` (${errors.length} errori)` : ''}`);
       return ok({ deleted: deleted.length, errors });
+    } catch (e) { return fail(e); }
+  });
+
+  // Storico eliminazioni: lista degli ultimi file cestinati.
+  ipcMain.handle('duplicates:get-trash-log', async () => {
+    try {
+      return ok(store.get('trashedFiles', []));
+    } catch (e) { return fail(e); }
+  });
+
+  // "Undo last": non può ripristinare programmaticamente dal Cestino Windows,
+  // ma ritorna la entry più recente così il renderer può mostrare il path
+  // all'utente e aprire il Cestino.
+  ipcMain.handle('duplicates:undo-last', async () => {
+    try {
+      const log = store.get('trashedFiles', []);
+      if (log.length === 0) return ok({ success: false, message: 'Storico vuoto' });
+      const last = log[log.length - 1];
+      return ok({
+        success: true,
+        file: last,
+        message:
+          `Apri il Cestino di Windows e cerca: ${last.fileName}\n` +
+          `Eliminato il ${last.trashedAt}`,
+      });
+    } catch (e) { return fail(e); }
+  });
+
+  // Pulisci lo storico (es. l'utente vuole ricominciare da capo)
+  ipcMain.handle('duplicates:clear-trash-log', async () => {
+    try {
+      store.set('trashedFiles', []);
+      return ok(true);
     } catch (e) { return fail(e); }
   });
 

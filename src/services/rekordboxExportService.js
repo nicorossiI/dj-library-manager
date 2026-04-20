@@ -219,10 +219,18 @@ function trackElement(t, rekordboxId, xmlOutputPath) {
   );
 }
 
-function buildCollectionXml(tracks, trackIdMap, xmlOutputPath) {
-  return (tracks || [])
-    .map(t => trackElement(t, trackIdMap.get(t.id), xmlOutputPath))
-    .join('\n');
+function buildCollectionXml(tracks, trackIdMap, xmlOutputPath, onProgress = null) {
+  const list = tracks || [];
+  const total = list.length;
+  const lines = new Array(total);
+  for (let i = 0; i < total; i++) {
+    const t = list[i];
+    lines[i] = trackElement(t, trackIdMap.get(t.id), xmlOutputPath);
+    if (onProgress && (i % 50 === 49 || i === total - 1)) {
+      try { onProgress(i + 1, total); } catch { /* noop */ }
+    }
+  }
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -393,11 +401,22 @@ function validateXml(xmlString, tracks) {
 // generateRekordboxXml (orchestratore)
 // ---------------------------------------------------------------------------
 
-async function generateRekordboxXml(organizedTracks, outputRoot) {
+/**
+ * @param {Track[]} organizedTracks
+ * @param {string} outputRoot
+ * @param {(done:number,total:number,phase:string)=>void} [onProgress]
+ */
+async function generateRekordboxXml(organizedTracks, outputRoot, onProgress = null) {
   if (!outputRoot) throw new Error('generateRekordboxXml: outputRoot mancante');
   const tracks = organizedTracks || [];
+  const reportProgress = (done, total, phase) => {
+    if (typeof onProgress === 'function') {
+      try { onProgress(done, total, phase); } catch { /* noop */ }
+    }
+  };
 
   // 1) TrackID progressivi
+  reportProgress(0, tracks.length, 'ids');
   const trackIdMap = new Map();
   tracks.forEach((t, i) => {
     const id = i + 1;
@@ -409,8 +428,13 @@ async function generateRekordboxXml(organizedTracks, outputRoot) {
   //    (USB portabile su qualsiasi drive letter).
   const xmlPath = path.join(outputRoot, 'rekordbox.xml');
 
-  // 3) Sezioni XML
-  const collectionXml = buildCollectionXml(tracks, trackIdMap, xmlPath);
+  // 3) Sezioni XML (collection ha progress per file >1000 track)
+  reportProgress(0, tracks.length, 'collection');
+  const collectionXml = buildCollectionXml(
+    tracks, trackIdMap, xmlPath,
+    (done, total) => reportProgress(done, total, 'collection'),
+  );
+  reportProgress(tracks.length, tracks.length, 'playlists');
   const playlistsXml = buildPlaylistsXml(tracks, trackIdMap);
 
   // 4) Assembla — BOM UTF-8 richiesto da Rekordbox per caratteri non-ASCII.
@@ -427,18 +451,20 @@ ${playlistsXml}
 `;
 
   // 5) Validazione (lancia su errore)
+  reportProgress(tracks.length, tracks.length, 'validating');
   validateXml(xml, tracks);
 
   // 6) Salva su disco
+  reportProgress(tracks.length, tracks.length, 'writing');
   await fsp.writeFile(xmlPath, xml, 'utf8');
 
-  // Aggiorna status
   tracks.forEach(t => {
     if (t.status === 'organized' || t.status === 'renamed' || !t.status) {
       t.status = 'exported';
     }
   });
 
+  reportProgress(tracks.length, tracks.length, 'done');
   return xmlPath;
 }
 

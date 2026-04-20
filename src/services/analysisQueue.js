@@ -83,8 +83,18 @@ async function drain() {
   await queue.onIdle();
 }
 
-function clear() {
-  queue.clear();
+/**
+ * Rimuove TUTTI i task pending (non ancora partiti) dalla coda e resetta i
+ * contatori. I task in esecuzione non vengono killati: `queue.clear()` non
+ * cancella le promise già partite. Per evitare di ritrovarsi con progress
+ * callback che arrivano dopo il reset (totalEnqueued/totalCompleted sballati),
+ * prima di resettare attendiamo `onIdle` — così la coda è davvero pulita.
+ */
+async function clear() {
+  queue.clear();                // svuota i pending (size → 0)
+  if (queue.pending > 0) {
+    await queue.onIdle();       // aspetta che i task in-flight completino
+  }
   _totalEnqueued = 0;
   _totalCompleted = 0;
 }
