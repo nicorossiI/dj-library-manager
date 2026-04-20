@@ -11,3 +11,8 @@ Thumbs.db
 # Binari bundled (sostituire dopo clone)
 assets/bin/fpcalc.exe
 assets/bin/fpcalc-mac
+
+# Chiavi API embedded — file admin-only con chiavi reali (NON committare!)
+# Il template committed è src/constants/embedded-keys.js (vuoto).
+# Crea `embedded-keys.local.js` con le tue chiavi per farle finire nel build.
+src/constants/embedded-keys.local.js

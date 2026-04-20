@@ -1275,9 +1275,29 @@ async function loadSettings() {
   if (!r.ok) return;
   state.settings = r.data;
   const acr = r.data?.acrcloud || {};
-  $('#set-acr-host').value = acr.host || '';
-  $('#set-acr-key').value = acr.accessKey || acr.key || '';
-  $('#set-acr-secret').value = acr.accessSecret || acr.secret || '';
+  const embeddedKeys = r.data?._embeddedKeys || {};
+  state.embeddedKeys = embeddedKeys;
+  const acrHostEl = $('#set-acr-host');
+  const acrKeyEl = $('#set-acr-key');
+  const acrSecEl = $('#set-acr-secret');
+  if (acrHostEl) {
+    acrHostEl.value = acr.host || '';
+    acrHostEl.placeholder = embeddedKeys.acrcloud
+      ? '✓ Host precompilato — inserisci solo per sostituirlo'
+      : 'identify-eu-west-1.acrcloud.com';
+  }
+  if (acrKeyEl) {
+    acrKeyEl.value = acr.accessKey || acr.key || '';
+    acrKeyEl.placeholder = embeddedKeys.acrcloud
+      ? '✓ Chiave precompilata — inserisci solo per sostituirla'
+      : 'Access Key ACRCloud';
+  }
+  if (acrSecEl) {
+    acrSecEl.value = acr.accessSecret || acr.secret || '';
+    acrSecEl.placeholder = embeddedKeys.acrcloud
+      ? '✓ Secret precompilato'
+      : 'Access Secret ACRCloud';
+  }
 
   // Watcher UI
   const watchFolder = r.data?.watchFolder || '';
@@ -1294,17 +1314,32 @@ async function loadSettings() {
   const setOrgRoot = $('#set-organize-root');
   if (setOrgRoot) setOrgRoot.textContent = organizeRoot || '(default: dentro cartella sorgente)';
 
+  // Flag chiavi precompilate (embedded-keys.local.js nel build)
+  const embedded = r.data?._embeddedKeys || {};
+
   // Replicate AI token
   const replToken = r.data?.replicateToken || '';
   const setRepl = $('#set-replicate-token');
-  if (setRepl) setRepl.value = replToken;
-  updateReplicateStateLabel(!!replToken);
+  if (setRepl) {
+    setRepl.value = replToken;
+    setRepl.placeholder = embedded.replicate
+      ? '✓ Chiave precompilata — inserisci solo per sostituirla'
+      : 'Incolla il token Replicate (r8_...)';
+  }
+  updateReplicateStateLabel(!!replToken || !!embedded.replicate,
+    embedded.replicate && !replToken ? true : null);
 
   // AcoustID key
   const acoustidKey = r.data?.acoustidKey || '';
   const setAid = $('#set-acoustid-key');
-  if (setAid) setAid.value = acoustidKey;
-  updateAcoustidStateLabel(!!acoustidKey);
+  if (setAid) {
+    setAid.value = acoustidKey;
+    setAid.placeholder = embedded.acoustid
+      ? '✓ Chiave precompilata — inserisci solo per sostituirla'
+      : 'Application API Key (8 caratteri da acoustid.org/new-application)';
+  }
+  updateAcoustidStateLabel(!!acoustidKey || !!embedded.acoustid,
+    embedded.acoustid && !acoustidKey ? true : null);
 
   // Concorrenza analisi
   const c = Number(r.data?.analysisConcurrency || 3);
