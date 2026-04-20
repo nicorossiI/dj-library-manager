@@ -25,12 +25,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 
 const { CONFIG } = require('../constants/CONFIG');
-const {
-  FOLDER_NAMES,
-  FLAT_FOLDERS,
-  SUBFOLDERS,
-  resolveTargetFolder,
-} = require('../constants/FOLDER_STRUCTURE');
+const { resolveFolder } = require('../constants/FOLDER_STRUCTURE');
 const { ensureDir, uniquePath } = require('../utils/fileUtils');
 const { pathToRekordboxUri } = require('../utils/stringUtils');
 const OrganizeResult = require('../models/OrganizeResult');
@@ -73,21 +68,13 @@ async function calculateOutputRoot(sourceFolder, customRoot = null) {
 // ---------------------------------------------------------------------------
 
 /**
- * Aggiunge un track al tree gerarchico.
- *   rel "A/B"       → tree[A][B] = [tracks]
- *   rel "A" (flat)  → tree[A]    = [tracks]
+ * Aggiunge un track al tree (struttura PIATTA).
+ *   rel "Afro House" → tree["Afro House"] = [tracks]
  */
 function addToTree(tree, rel, track) {
-  const parts = String(rel).split(/[\\/]+/).filter(Boolean);
-  if (parts.length === 1) {
-    if (!Array.isArray(tree[parts[0]])) tree[parts[0]] = [];
-    tree[parts[0]].push(track);
-  } else if (parts.length >= 2) {
-    const [p0, p1] = parts;
-    if (!tree[p0] || Array.isArray(tree[p0])) tree[p0] = {};
-    if (!Array.isArray(tree[p0][p1])) tree[p0][p1] = [];
-    tree[p0][p1].push(track);
-  }
+  const name = String(rel).split(/[\\/]+/).filter(Boolean)[0] || 'Da Controllare';
+  if (!Array.isArray(tree[name])) tree[name] = [];
+  tree[name].push(track);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,24 +101,24 @@ async function previewOrganization(tracks, sourceFolder, opts = {}) {
   };
 
   for (const t of tracks || []) {
-    const rel = resolveTargetFolder(t);
-    t.targetFolder = rel;
+    const folderName = resolveFolder(t);
+    t.targetFolder = folderName;
+    t.targetSubfolder = null; // struttura piatta — niente sottocartelle
 
     const fileName = t.newFileName || t.fileName || (t.filePath ? path.basename(t.filePath) : 'untitled.mp3');
-    t.newFilePath = path.join(outputRoot, rel, fileName);
+    t.newFilePath = path.join(outputRoot, folderName, fileName);
     t.rekordboxUri = pathToRekordboxUri(t.newFilePath);
 
-    // Popola i campi playlist per il futuro export rekordbox.xml
-    const relParts = rel.split(/[\\/]+/).filter(Boolean);
-    t.rekordboxPlaylistFolder = relParts[0] || '';
-    t.rekordboxPlaylistName = relParts[1] || '';
+    // Playlist Rekordbox = cartella piatta (nessuna gerarchia)
+    t.rekordboxPlaylistFolder = folderName;
+    t.rekordboxPlaylistName = '';
 
-    addToTree(tree, rel, t);
-    foldersSeen.add(rel);
+    addToTree(tree, folderName, t);
+    foldersSeen.add(folderName);
 
     stats.filesToCopy++;
     stats.totalSizeBytes += Number(t.fileSize) || 0;
-    if (rel === FOLDER_NAMES.UNCLASSIFIED) stats.unclassified++;
+    if (folderName === 'Da Controllare') stats.unclassified++;
   }
 
   stats.foldersToCreate = foldersSeen.size;

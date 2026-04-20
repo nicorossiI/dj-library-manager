@@ -938,6 +938,19 @@
 .folder-tree-node.collapsed > .folder-children { display: none; }
 .folder-tree-node.collapsed .caret-mini { transform: rotate(-90deg); }
 
+/* Colori per le 10 cartelle genere (struttura piatta DJ serata) */
+.folder-riscaldamento      { color: #ffa94d; }
+.folder-reggaeton          { color: #ff6b6b; }
+.folder-afrohouse          { color: #ffd93d; }
+.folder-techhouse          { color: #6bcb77; }
+.folder-deephouse          { color: #4d96ff; }
+.folder-dembow             { color: #c77dff; }
+.folder-bachataetropicale  { color: #ff9f43; }
+.folder-hiphopetrap        { color: #a29bfe; }
+.folder-techno             { color: #636e72; }
+.folder-mixeset            { color: #00cec9; }
+.folder-dacontrollare      { color: #b2bec3; }
+
 /* ════════════════════════════════════════════════════════════════
    BANNER info/warning/success
    ════════════════════════════════════════════════════════════════ */

@@ -209,10 +209,33 @@ async function writeTags(filePath, tags = {}) {
   return { ok: !!ok };
 }
 
+// Label lingua leggibili — usate per scrivere Comment + Grouping ID3
+// così Rekordbox filtra la libreria per lingua senza cartelle separate.
+const LANG_LABELS = {
+  'es':    'Spagnolo',
+  'it':    'Italiano',
+  'it_es': 'Italiano-Spagnolo',
+  'en':    'Inglese',
+  'mixed': 'Misto',
+  'instrumental': 'Strumentale',
+  'unknown': 'Misto',
+};
+
+function normalizeLangKey(l) {
+  const s = String(l || '').toLowerCase().trim();
+  if (!s) return 'mixed';
+  if (/^(es|spa|spanish|spagnol\w*)$/.test(s)) return 'es';
+  if (/^(it|ita|italian\w*)$/.test(s)) return 'it';
+  if (/^(en|eng|english|ingles\w*)$/.test(s)) return 'en';
+  if (s === 'it_es' || s === 'ites' || s === 'es_it') return 'it_es';
+  if (s === 'instrumental') return 'instrumental';
+  return 'mixed';
+}
+
 /**
- * Scrive SOLO bpm + key nei tag ID3 (TBPM, TKEY) preservando gli altri.
- * Usato dopo bpm/key detection per persistere i valori così Rekordbox
- * li legge automaticamente.
+ * Scrive BPM + key + lingua + tipo nei tag ID3 (TBPM, TKEY, COMM, TIT1 "grouping").
+ * Usato dopo l'analisi per persistere i valori — Rekordbox li legge
+ * automaticamente e permette filtrare per lingua/tipo senza cartelle.
  */
 async function writeAnalysisTags(track) {
   if (!track || !track.filePath) return { ok: false, reason: 'no filePath' };
@@ -226,6 +249,28 @@ async function writeAnalysisTags(track) {
   if (track.key) {
     update.initialKey = String(track.key); // Camelot "8B" o standard
   }
+
+  // Lingua + tipo → Comment + Grouping (Rekordbox li mostra come campi filtrabili)
+  try {
+    const langKey = normalizeLangKey(track.vocalsLanguage || track.detectedLanguage);
+    const langLabel = LANG_LABELS[langKey] || 'Misto';
+    let typeLabel = 'Singolo';
+    if (track.isMix || track.type === 'mix') {
+      typeLabel = 'Mix';
+    } else if (track.isMashup || track.type === 'mashup') {
+      const genreKey = String(track.aiGenre || '').toLowerCase().replace(/[\s\-_]+/g, '');
+      const { GENRE_LABELS } = require('../constants/FOLDER_STRUCTURE');
+      const gLabel = GENRE_LABELS[genreKey];
+      typeLabel = gLabel ? `${gLabel} Edit` : 'Mashup';
+    }
+    update.comment = {
+      language: 'ita',
+      text: `${langLabel} | ${typeLabel}`,
+    };
+    // Grouping (TIT1) letto da Rekordbox come campo custom
+    update.grouping = langLabel;
+  } catch { /* noop */ }
+
   if (Object.keys(update).length === 0) return { ok: false, reason: 'nothing to write' };
 
   try {

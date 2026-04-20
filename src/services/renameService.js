@@ -45,6 +45,7 @@ const NodeID3 = require('node-id3');
 
 const { sanitizeFileName, isMashupOrEdit } = require('../utils/stringUtils');
 const { CONFIG } = require('../constants/CONFIG');
+const { genreLabel } = require('../constants/FOLDER_STRUCTURE');
 
 // ---------------------------------------------------------------------------
 // Costanti
@@ -113,13 +114,13 @@ function splitArtistsForMashup(artistStr = '') {
 }
 
 /**
- * Cap "core" a MAX_CORE_LEN preservando il suffisso "(EditType)" se presente
- * (così non lo tronchiamo a metà).
+ * Cap "core" a MAX_CORE_LEN preservando il suffisso "[EditType]" o "(EditType)"
+ * se presente (così non lo tronchiamo a metà).
  */
 function capCore(core, maxLen = MAX_CORE_LEN) {
   if (core.length <= maxLen) return core;
-  // Se finisce con "(...)" lo isoliamo e tronchiamo solo la parte prima
-  const m = core.match(/^(.*?)(\s*\([^)]+\))$/);
+  // Se finisce con "[...]" o "(...)" lo isoliamo e tronchiamo solo la parte prima
+  const m = core.match(/^(.*?)(\s*[\[(][^\])]+[\])])$/);
   if (m) {
     const head = m[1];
     const tail = m[2];
@@ -127,6 +128,29 @@ function capCore(core, maxLen = MAX_CORE_LEN) {
     if (headMax > 0) return head.slice(0, headMax).trim() + tail;
   }
   return core.slice(0, maxLen).trim();
+}
+
+/**
+ * Costruisce il tag edit/mashup da appendere al core:
+ *   "[Afro House Edit]"    quando isMashup && aiGenre
+ *   "[Tech House Mashup]"  quando mashup multi-artista e aiGenre
+ *   "(Mashup)" fallback    quando mashup senza aiGenre
+ *   ""                     quando non è un edit/mashup
+ */
+function buildEditLabel(track, isMashup) {
+  if (!isMashup) return '';
+  const label = genreLabel(track?.aiGenre);
+  if (label) {
+    // Multi-artista → "Mashup", singolo artista con base diversa → "Edit"
+    const artistStr = String(track?.recognizedArtist || track?.localArtist || '');
+    const multi = /\s(?:,|&|x|vs\.?|feat\.?|ft\.?)\s/i.test(artistStr);
+    const kind = multi ? 'Mashup' : 'Edit';
+    return ` [${label} ${kind}]`;
+  }
+  // Nessun aiGenre: fallback al vecchio extractEditType, altrimenti "Mashup"
+  const legacy = extractEditType(track?.localTitle);
+  if (legacy) return ` [${sanitizeFileName(legacy)}]`;
+  return ' [Mashup]';
 }
 
 /**
@@ -280,14 +304,14 @@ function generateNewFileName(track) {
 
   // 1) Recognized
   if (track?.isRecognized && track.recognizedTitle && track.recognizedArtist) {
-    const editType = isMashup ? (extractEditType(track.localTitle) || 'Edit') : '';
+    const editLabel = buildEditLabel(track, isMashup);
     const artist = isMashup
       ? splitArtistsForMashup(track.recognizedArtist)
       : track.recognizedArtist;
     const cleanTitle = stripEditAnnotations(track.recognizedTitle) || track.recognizedTitle;
 
     let core = `${sanitizeFileName(artist || 'Unknown Artist')} - ${sanitizeFileName(cleanTitle || 'Unknown')}`;
-    if (editType) core += ` (${sanitizeFileName(editType)})`;
+    if (editLabel) core += editLabel;
     core = capCore(core);
 
     return {
@@ -303,14 +327,14 @@ function generateNewFileName(track) {
 
   // 2) Local tags
   if (hasUsableLocalTags(track)) {
-    const editType = isMashup ? (extractEditType(track.localTitle) || 'Edit') : '';
+    const editLabel = buildEditLabel(track, isMashup);
     const artist = isMashup
       ? splitArtistsForMashup(track.localArtist)
       : track.localArtist;
     const cleanTitle = stripEditAnnotations(track.localTitle) || track.localTitle;
 
     let core = `${sanitizeFileName(artist || 'Unknown Artist')} - ${sanitizeFileName(cleanTitle || 'Unknown')}`;
-    if (editType) core += ` (${sanitizeFileName(editType)})`;
+    if (editLabel) core += editLabel;
     core = capCore(core);
 
     return {
@@ -328,9 +352,9 @@ function generateNewFileName(track) {
     const artistStr = String(track?.localArtist || '').trim();
     if (artistStr) {
       const artists = splitArtistsForMashup(artistStr);
-      const editType = extractEditType(track?.localTitle) || '';
+      const editLabel = buildEditLabel(track, true);
       let core = `${sanitizeFileName(artists)} -`;
-      if (editType) core += ` (${sanitizeFileName(editType)})`;
+      if (editLabel) core += editLabel;
       core = capCore(core);
       return {
         newFileName: core + bpmSuffix + ext,

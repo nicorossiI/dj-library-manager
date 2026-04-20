@@ -43,7 +43,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 
-const { FOLDER_NAMES, SUBFOLDERS } = require('../constants/FOLDER_STRUCTURE');
+const { FOLDER_ORDER } = require('../constants/FOLDER_STRUCTURE');
 const { pathToRekordboxUri } = require('../utils/stringUtils');
 
 // ---------------------------------------------------------------------------
@@ -227,47 +227,26 @@ function buildCollectionXml(tracks, trackIdMap, xmlOutputPath) {
 // ---------------------------------------------------------------------------
 
 /**
- * Ritorna Map<folderName, structure>
- *   - structure { direct: Track[] }                      → playlist diretta (no subfolder)
- *   - structure { 'Singoli': Track[], 'Mashup e Edit': Track[] } → folder con subfolders
+ * Ritorna Map<folderName, { direct: Track[] }> — struttura PIATTA.
+ * Ogni cartella è una playlist Rekordbox senza sottocartelle.
  *
- * Tracks senza rekordboxPlaylistFolder finiscono in "Da Classificare" (direct)
- * per evitare di perderle nel rekordbox.xml.
+ * Tracks senza rekordboxPlaylistFolder finiscono in "Da Controllare".
  */
 function groupTracksByPlaylist(tracks) {
   const groups = new Map();
 
   for (const t of tracks || []) {
     let folder = t.rekordboxPlaylistFolder || '';
-    let sub = t.rekordboxPlaylistName || '';
 
-    // Fallback: se manca folder, derive da targetFolder; se ancora niente → Da Classificare
+    // Fallback: se manca, prova targetFolder, poi "Da Controllare"
     if (!folder && t.targetFolder) {
       const parts = String(t.targetFolder).split(/[\\/]+/).filter(Boolean);
-      folder = parts[0] || FOLDER_NAMES.UNCLASSIFIED;
-      sub = parts[1] || '';
+      folder = parts[0] || 'Da Controllare';
     }
-    if (!folder) folder = FOLDER_NAMES.UNCLASSIFIED;
+    if (!folder) folder = 'Da Controllare';
 
-    if (!sub) {
-      // Playlist diretta (Mix e Set, Da Classificare, ecc.)
-      if (!groups.has(folder)) groups.set(folder, { direct: [] });
-      const entry = groups.get(folder);
-      if (!Array.isArray(entry.direct)) {
-        // collisione tra direct e folder-with-subs: fonde sub vuoto
-        entry.direct = [];
-      }
-      entry.direct.push(t);
-    } else {
-      // Folder + subfolder
-      if (!groups.has(folder)) groups.set(folder, {});
-      const entry = groups.get(folder);
-      if (entry.direct) {
-        // edge case: era già diretto, convertiamo in struttura mista (improbabile)
-      }
-      if (!Array.isArray(entry[sub])) entry[sub] = [];
-      entry[sub].push(t);
-    }
+    if (!groups.has(folder)) groups.set(folder, { direct: [] });
+    groups.get(folder).direct.push(t);
   }
 
   return groups;
@@ -277,77 +256,19 @@ function groupTracksByPlaylist(tracks) {
 // buildPlaylistsXml
 // ---------------------------------------------------------------------------
 
-// Ordine di apparizione folder/playlist in PLAYLISTS
-// Ordine visualizzazione in Rekordbox (gerarchia radicata).
-// Deduplicato via Set (molti alias puntano alla stessa cartella).
-const FOLDER_ORDER = [...new Set([
-  // Afro House
-  FOLDER_NAMES.AFRO_HOUSE_ES, FOLDER_NAMES.AFRO_HOUSE_IT,
-  FOLDER_NAMES.AFRO_HOUSE_ITES, FOLDER_NAMES.AFRO_HOUSE_EN,
-  FOLDER_NAMES.AFRO_HOUSE_MIXED, FOLDER_NAMES.AFRO_HOUSE_INSTR,
-  // Tech House
-  FOLDER_NAMES.TECH_HOUSE_ES, FOLDER_NAMES.TECH_HOUSE_IT,
-  FOLDER_NAMES.TECH_HOUSE_ITES, FOLDER_NAMES.TECH_HOUSE_EN,
-  FOLDER_NAMES.TECH_HOUSE_MIXED, FOLDER_NAMES.TECH_HOUSE_INSTR,
-  // Deep House
-  FOLDER_NAMES.DEEP_HOUSE_ES, FOLDER_NAMES.DEEP_HOUSE_IT,
-  FOLDER_NAMES.DEEP_HOUSE_ITES, FOLDER_NAMES.DEEP_HOUSE_EN,
-  FOLDER_NAMES.DEEP_HOUSE_MIXED, FOLDER_NAMES.DEEP_HOUSE_INSTR,
-  // House Latino / House Misto
-  FOLDER_NAMES.HOUSE_LATINO_ES, FOLDER_NAMES.HOUSE_MIXED,
-  // Reggaeton
-  FOLDER_NAMES.REGGAETON_ES, FOLDER_NAMES.REGGAETON_MIXED,
-  // Dembow
-  FOLDER_NAMES.DEMBOW_ES, FOLDER_NAMES.DEMBOW_MIXED,
-  // Bachata
-  FOLDER_NAMES.BACHATA_ES,
-  // Hip Hop
-  FOLDER_NAMES.HIPHOP_IT, FOLDER_NAMES.HIPHOP_EN, FOLDER_NAMES.HIPHOP_ES,
-  // Strumentali / Mondo
-  FOLDER_NAMES.TECHNO, FOLDER_NAMES.SALSA_TROPICAL,
-  // Speciali
-  FOLDER_NAMES.MIX_SET, FOLDER_NAMES.MASHUP_VARI, FOLDER_NAMES.TO_CHECK,
-])];
-
-const SUB_ORDER = [SUBFOLDERS.SINGLES, SUBFOLDERS.MASHUP];
-
 function trackKeyLine(rekordboxId, indent) {
   return `${indent}<TRACK Key="${rekordboxId}"/>`;
 }
 
 function buildDirectPlaylistNode(name, tracks, trackIdMap) {
-  const lines = tracks.map(t => trackKeyLine(trackIdMap.get(t.id), '        ')).join('\n');
+  // Ordina per BPM crescente dentro ogni cartella per energia pista
+  const sorted = [...tracks].sort((a, b) => (Number(a.bpm) || 0) - (Number(b.bpm) || 0));
+  const lines = sorted
+    .map(t => trackKeyLine(trackIdMap.get(t.id), '        '))
+    .join('\n');
   return (
-`      <NODE Type="1" Name="${xmlEscape(name)}" Entries="${tracks.length}" KeyType="0">
+`      <NODE Type="1" Name="${xmlEscape(name)}" Entries="${sorted.length}" KeyType="0">
 ${lines}
-      </NODE>`
-  );
-}
-
-function buildFolderNode(folderName, subStructure, trackIdMap) {
-  // Ordina sub: Singoli prima, poi Mashup e Edit, poi eventuali altri
-  const subNames = [
-    ...SUB_ORDER.filter(s => Array.isArray(subStructure[s]) && subStructure[s].length > 0),
-    ...Object.keys(subStructure)
-        .filter(k => k !== 'direct' && !SUB_ORDER.includes(k))
-        .filter(k => Array.isArray(subStructure[k]) && subStructure[k].length > 0),
-  ];
-
-  if (subNames.length === 0) return null; // folder vuoto: skip
-
-  const subBlocks = subNames.map(subName => {
-    const subTracks = subStructure[subName];
-    const lines = subTracks.map(t => trackKeyLine(trackIdMap.get(t.id), '          ')).join('\n');
-    return (
-`        <NODE Type="1" Name="${xmlEscape(subName)}" Entries="${subTracks.length}" KeyType="0">
-${lines}
-        </NODE>`
-    );
-  });
-
-  return (
-`      <NODE Type="0" Name="${xmlEscape(folderName)}" Count="${subBlocks.length}">
-${subBlocks.join('\n')}
       </NODE>`
   );
 }
@@ -355,7 +276,7 @@ ${subBlocks.join('\n')}
 function buildPlaylistsXml(tracks, trackIdMap) {
   const groups = groupTracksByPlaylist(tracks);
 
-  // Ordine: prima quelli noti in FOLDER_ORDER, poi eventuali sconosciuti
+  // Ordine serata: Riscaldamento → Reggaeton → Afro House → Tech House → ...
   const orderedNames = [
     ...FOLDER_ORDER.filter(n => groups.has(n)),
     ...[...groups.keys()].filter(n => !FOLDER_ORDER.includes(n)),
@@ -364,13 +285,8 @@ function buildPlaylistsXml(tracks, trackIdMap) {
   const blocks = [];
   for (const name of orderedNames) {
     const struct = groups.get(name);
-    if (struct.direct) {
-      if (struct.direct.length === 0) continue;
-      blocks.push(buildDirectPlaylistNode(name, struct.direct, trackIdMap));
-    } else {
-      const node = buildFolderNode(name, struct, trackIdMap);
-      if (node) blocks.push(node);
-    }
+    if (!struct.direct || struct.direct.length === 0) continue;
+    blocks.push(buildDirectPlaylistNode(name, struct.direct, trackIdMap));
   }
 
   return (

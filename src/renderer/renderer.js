@@ -960,23 +960,15 @@ function renderRekordboxPreview() {
   let folders = 0, playlists = 0, tracks = 0;
   const lines = [];
   for (const [name, val] of Object.entries(tree)) {
-    if (Array.isArray(val)) {
-      // Direct playlist (Mix e Set, Da Classificare)
-      const warn = name === 'Da Classificare' ? ' ⚠️' : '';
-      lines.push(`<div class="pl-folder">🎵 ${escapeHtml(name)} (${val.length} tracce)${warn}</div>`);
-      tracks += val.length;
-      playlists++;
-    } else {
-      lines.push(`<div class="pl-folder">📁 ${escapeHtml(name)}</div>`);
-      folders++;
-      for (const [sub, list] of Object.entries(val)) {
-        const icon = sub === 'Singoli' ? '🎵' : '🔀';
-        lines.push(`<div class="pl-sub">${icon} ${escapeHtml(sub)} (${list.length} tracce)</div>`);
-        tracks += list.length;
-        playlists++;
-      }
-    }
+    // Struttura PIATTA: una playlist per cartella, nessuna sottocartella.
+    const list = Array.isArray(val) ? val : Object.values(val).flat();
+    const warn = (name === 'Da Controllare' || name === 'Da Classificare') ? ' ⚠️' : '';
+    const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '');
+    lines.push(`<div class="pl-folder folder-${escapeHtml(slug)}">🎵 ${escapeHtml(name)} (${list.length} tracce)${warn}</div>`);
+    tracks += list.length;
+    playlists++;
   }
+  folders = playlists;
   host.innerHTML = lines.join('');
   $('#rkb-folders').textContent = folders;
   $('#rkb-playlists').textContent = playlists;
